@@ -146,7 +146,6 @@ const String openAiApiKey = 'YOUR_OPENAI_API_KEY_HERE';
 
 Get an API key at [platform.openai.com](https://platform.openai.com/api-keys).
 
-> ⚠️ **Never commit your real API key to git.** The `.gitignore` is pre-configured to help, but double-check before pushing.
 
 ---
 
