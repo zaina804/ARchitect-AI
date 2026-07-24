@@ -1,0 +1,14 @@
+{
+  "appName": "ARchitect AI",
+  "tagline": "Industrial Design Intelligence",
+  "readyToBuild": "Ready to Build?",
+  "scanLand": "Scan your land to generate AI floor plans instantly.",
+  "scanNow": "Scan Land Now",
+  "activeProjects": "Active\nProjects",
+  "blueprints": "Blueprints",
+  "recentProjects": "Recent Projects",
+  "seeAll": "See All",
+  "myProfile": "My Profile",
+  "settings": "Settings",
+  "logout": "Log Out"
+}

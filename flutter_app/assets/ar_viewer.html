@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    canvas {
+      display: block;
+      width: 100%; height: 100%;
+      background: transparent;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three":          "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/":  "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  alpha: true,
+  premultipliedAlpha: false,
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 0);   // fully transparent
+document.body.appendChild(renderer.domElement);
+
+// ── Scene ─────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 1000);
+camera.position.set(0, 7, 14);
+camera.lookAt(0, 0, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.position.set(5, 12, 8);
+scene.add(sun);
+
+// Invisible ground for drag-snapping
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(300, 300),
+  new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentModel = null;
+let serverUrl    = 'http://192.168.8.80:8000';
+const gltfLoader = new GLTFLoader();
+
+// ── Public API (called from Flutter via runJavaScript) ────────────────────────
+window.setServerUrl = function(url) { serverUrl = url; };
+
+window.loadBuilding = function(url) {
+  notifyFlutter({ event: 'loadingStarted' });
+  if (currentModel) { scene.remove(currentModel); currentModel = null; }
+
+  gltfLoader.load(
+    url,
+    (gltf) => {
+      currentModel = gltf.scene;
+
+      // Normalize scale so tallest dimension = 4 units
+      const box    = new THREE.Box3().setFromObject(currentModel);
+      const size   = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 0) currentModel.scale.setScalar(4.0 / maxDim);
+
+      // Place bottom on y = 0
+      const box2 = new THREE.Box3().setFromObject(currentModel);
+      currentModel.position.y = -box2.min.y;
+
+      scene.add(currentModel);
+      notifyFlutter({ event: 'modelLoaded' });
+    },
+    (xhr) => {
+      if (xhr.total > 0) {
+        notifyFlutter({ event: 'progress', pct: Math.round(xhr.loaded / xhr.total * 100) });
+      }
+    },
+    (err) => {
+      notifyFlutter({ event: 'modelError', message: String(err) });
+    }
+  );
+};
+
+window.resetScan = function() {
+  if (currentModel) { scene.remove(currentModel); currentModel = null; }
+  notifyFlutter({ event: 'resetDone' });
+};
+
+// ── Touch controls ─────────────────────────────────────────────────────────────
+let prevTouches  = [];
+let prevPinchD   = 0;
+let prevTwistA   = 0;
+
+function d2(a, b) { return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY); }
+function a2(a, b) { return Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX); }
+
+renderer.domElement.addEventListener('touchstart', e => {
+  e.preventDefault();
+  prevTouches = Array.from(e.touches);
+  if (prevTouches.length === 2) {
+    prevPinchD = d2(prevTouches[0], prevTouches[1]);
+    prevTwistA = a2(prevTouches[0], prevTouches[1]);
+  }
+}, { passive: false });
+
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!currentModel) return;
+  const t = Array.from(e.touches);
+
+  if (t.length === 1 && prevTouches.length === 1) {
+    const dx = (t[0].clientX - prevTouches[0].clientX) / innerWidth;
+    const dz = (t[0].clientY - prevTouches[0].clientY) / innerHeight;
+    currentModel.position.x += dx * 22;
+    currentModel.position.z += dz * 22;
+
+  } else if (t.length === 2) {
+    const dd = d2(t[0], t[1]);
+    const da = a2(t[0], t[1]);
+
+    if (prevPinchD > 0) {
+      const ns = Math.max(0.05, Math.min(30, currentModel.scale.x * (dd / prevPinchD)));
+      currentModel.scale.setScalar(ns);
+    }
+    currentModel.rotation.y += da - prevTwistA;
+
+    prevPinchD = dd;
+    prevTwistA = da;
+  }
+  prevTouches = t;
+}, { passive: false });
+
+renderer.domElement.addEventListener('touchend', e => {
+  prevTouches = Array.from(e.touches);
+  prevPinchD = prevTwistA = 0;
+}, { passive: false });
+
+// ── Render loop ────────────────────────────────────────────────────────────────
+(function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+})();
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Flutter channel ────────────────────────────────────────────────────────────
+function notifyFlutter(data) {
+  try { if (window.ARChannel) window.ARChannel.postMessage(JSON.stringify(data)); }
+  catch (_) {}
+}
+
+notifyFlutter({ event: 'ready' });
+</script>
+</body>
+</html>

@@ -1,0 +1,2631 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:sans-serif; }
+
+/* Full image — no cropping, letterboxed */
+#photo-bg {
+    position:absolute; inset:0;
+    background-color:#000;
+    background-size:contain;
+    background-repeat:no-repeat;
+    background-position:center;
+    transition:opacity 1.4s ease;
+    z-index:0;
+}
+
+/* SVG land boundary overlay */
+#poly-svg {
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    z-index:1; pointer-events:none;
+    opacity:0; transition:opacity 0.8s;
+}
+
+/* Transparent 3D canvas — building renders on top of photo */
+#renderCanvas {
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    background:transparent;
+    z-index:2;
+    touch-action:none;
+}
+
+#loader {
+    position:fixed; inset:0;
+    background:rgba(0,0,0,0.9);
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:center; z-index:30; color:white; gap:14px;
+}
+#loader.hidden { display:none; }
+.spinner {
+    width:44px; height:44px;
+    border:3px solid rgba(255,255,255,0.15);
+    border-top-color:white; border-radius:50%;
+    animation:spin .8s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+#top-bar {
+    position:fixed; top:0; left:0; right:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px; z-index:20;
+    background:linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+}
+#top-title { color:white; font-size:14px; font-weight:600; flex:1; text-align:center; }
+.top-right { display:flex; gap:8px; }
+.tbtn {
+    background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.22);
+    border-radius:20px; color:white; font-size:12px; padding:7px 14px; cursor:pointer;
+}
+.tbtn.active { background:rgba(255,255,255,0.28); }
+
+#bottom-bar {
+    position:fixed; bottom:160px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:10px; z-index:20;
+}
+.bbtn {
+    background:rgba(8,10,8,0.88); backdrop-filter:blur(16px) saturate(1.5);
+    border:1px solid rgba(255,255,255,0.15); border-radius:44px; color:white;
+    font-size:13px; padding:13px 22px; cursor:pointer;
+    display:flex; align-items:center; gap:7px;
+    transition:background .14s, border-color .14s;
+    -webkit-tap-highlight-color:transparent; user-select:none;
+}
+.bbtn:active { background:rgba(32,36,32,0.96); border-color:rgba(255,255,255,0.26); }
+.bbtn:disabled { opacity:.30; pointer-events:none; }
+
+#light-panel {
+    position:fixed; left:14px; top:50%; transform:translateY(-50%);
+    background:rgba(6,8,6,0.94); backdrop-filter:blur(20px) saturate(1.3);
+    border:1px solid rgba(255,255,255,0.09); border-radius:18px;
+    padding:18px; display:none; flex-direction:column;
+    gap:14px; z-index:20; min-width:178px;
+    box-shadow:0 6px 32px rgba(0,0,0,0.50);
+}
+#light-panel.open { display:flex; }
+.lp-title { color:rgba(255,255,255,0.35); font-size:9px; text-transform:uppercase; letter-spacing:.11em; }
+.lp-row { display:flex; flex-direction:column; gap:5px; }
+.lp-label { color:rgba(255,255,255,0.88); font-size:12px; display:flex; justify-content:space-between; }
+.lp-label span { opacity:.40; font-size:11px; }
+input[type=range] { width:100%; accent-color:#81C784; cursor:pointer; }
+
+#hint {
+    position:fixed; top:66px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.74); color:rgba(255,255,255,0.90); font-size:12px;
+    padding:8px 18px; border-radius:22px; opacity:0;
+    transition:opacity .45s; z-index:20; white-space:nowrap; pointer-events:none;
+    letter-spacing:.01em;
+}
+#hint.show { opacity:1; }
+
+/* ── Floor Plan bar — integrated pill ── */
+#fp-bar {
+    position:fixed; bottom:160px; left:50%; transform:translateX(-50%);
+    display:none; align-items:center; gap:2px;
+    background:rgba(5,8,5,0.92); backdrop-filter:blur(22px) saturate(1.5);
+    border:1px solid rgba(255,255,255,0.11); border-radius:54px;
+    padding:5px; z-index:20;
+    box-shadow:0 4px 28px rgba(0,0,0,0.50);
+}
+#fp-bar .bbtn {
+    background:transparent; border:none; border-radius:48px;
+    padding:10px 15px; font-size:12px; font-weight:500;
+    box-shadow:none; letter-spacing:.01em;
+}
+#fp-bar .bbtn:active { background:rgba(255,255,255,0.09); border:none; }
+#floor-label {
+    color:rgba(255,255,255,0.78); font-size:11px; font-weight:600;
+    padding:0 8px; white-space:nowrap; letter-spacing:.04em; user-select:none;
+}
+.fp-interior-btn {
+    background:rgba(76,175,80,0.15)!important;
+    border:1px solid rgba(76,175,80,0.30)!important;
+    color:#A5D6A7!important;
+}
+.fp-interior-btn:active { background:rgba(76,175,80,0.26)!important; }
+.fp-exit-btn { color:rgba(255,110,100,0.80)!important; }
+
+/* ── Interior Design bar ── */
+#interior-bar {
+    position:fixed; bottom:160px; left:0; right:0;
+    display:none; flex-direction:column; align-items:center;
+    gap:7px; padding:0 10px; z-index:20;
+}
+.frow {
+    background:rgba(6,8,6,0.90); backdrop-filter:blur(20px) saturate(1.4);
+    border:1px solid rgba(255,255,255,0.09); border-radius:22px;
+    padding:8px 10px; display:flex; gap:6px; flex-wrap:wrap;
+    justify-content:center; box-shadow:0 3px 20px rgba(0,0,0,0.42);
+}
+.fbtn {
+    background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.10);
+    border-radius:13px; color:rgba(255,255,255,0.88); font-size:10px;
+    padding:8px 11px; cursor:pointer; min-width:52px;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    transition:background .14s, border-color .14s;
+    -webkit-tap-highlight-color:transparent; user-select:none;
+}
+.fbtn .fi { font-size:18px; line-height:1.1; }
+.fbtn:active { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.26); }
+.fbtn.fsel { border-color:#66BB6A; background:rgba(76,175,80,0.16); color:#A5D6A7; }
+
+/* ── Room zone popup — animated bottom sheet ── */
+#zone-popup {
+    position:fixed; bottom:0; left:0; right:0;
+    background:rgba(7,10,7,0.97); backdrop-filter:blur(28px) saturate(1.3);
+    border-top:1px solid rgba(255,255,255,0.09);
+    border-radius:28px 28px 0 0;
+    padding:0 16px 36px; z-index:31;
+    display:flex; flex-direction:column; gap:0;
+    transform:translateY(100%); opacity:0; pointer-events:none; visibility:hidden;
+    transition:transform .28s cubic-bezier(0.32,0.72,0,1), opacity .20s;
+    box-shadow:0 -6px 40px rgba(0,0,0,0.60);
+}
+#zone-popup.show {
+    transform:translateY(0); opacity:1; pointer-events:auto; visibility:visible;
+}
+.zp-handle {
+    width:38px; height:4px; border-radius:2px;
+    background:rgba(255,255,255,0.20); margin:14px auto 12px; flex-shrink:0;
+}
+.zp-title {
+    color:rgba(255,255,255,0.36); font-size:9px;
+    text-transform:uppercase; letter-spacing:.13em; margin-bottom:10px;
+    text-align:center; flex-shrink:0;
+}
+.zbtn {
+    background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+    border-radius:15px; color:rgba(255,255,255,0.92); font-size:14px;
+    padding:14px 16px; cursor:pointer; text-align:left;
+    display:flex; align-items:center; gap:12px; margin-bottom:7px;
+    transition:background .12s, border-color .12s;
+    -webkit-tap-highlight-color:transparent; user-select:none;
+}
+.zbtn:last-child { margin-bottom:0; }
+.zbtn:active { background:rgba(255,255,255,0.09); }
+.zbtn .zb-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-left:auto; }
+.zbtn.z-living   { border-color:rgba(255,165,50,0.20); }
+.zbtn.z-living:active   { background:rgba(255,165,50,0.07); }
+.zbtn.z-bedroom  { border-color:rgba(90,120,240,0.20); }
+.zbtn.z-bedroom:active  { background:rgba(90,120,240,0.07); }
+.zbtn.z-bathroom { border-color:rgba(38,190,210,0.20); }
+.zbtn.z-bathroom:active { background:rgba(38,190,210,0.07); }
+.zbtn.z-kitchen  { border-color:rgba(50,190,70,0.20); }
+.zbtn.z-kitchen:active  { background:rgba(50,190,70,0.07); }
+.zbtn.z-office   { border-color:rgba(170,70,230,0.20); }
+.zbtn.z-office:active   { background:rgba(170,70,230,0.07); }
+.zbtn.zclear { color:rgba(255,90,90,0.84); border-color:rgba(255,90,90,0.14); }
+.zbtn.zclear:active { background:rgba(255,90,90,0.07); }
+
+/* ── 2D Floor Plan overlay ── */
+#fp-overlay {
+    position:fixed; inset:0;
+    background:#fff; z-index:25;
+    display:none; overflow:auto;
+    touch-action:pan-x pan-y;
+}
+#fp-overlay.show { display:block; }
+#fp-overlay svg { width:100%; height:100%; }
+</style>
+</head>
+<body>
+<div id="photo-bg"></div>
+
+<!-- Land boundary polygon drawn here (green dashed outline from YOLO mask) -->
+<svg id="poly-svg">
+  <polygon id="poly-shape"
+    fill="rgba(0,220,100,0.08)"
+    stroke="rgba(0,255,110,0.75)"
+    stroke-width="2.5"
+    stroke-dasharray="10,6"
+    points=""/>
+</svg>
+
+<canvas id="renderCanvas"></canvas>
+
+<!-- 2D Floor Plan overlay (SVG injected by showFloorPlanOverlay) -->
+<div id="fp-overlay"></div>
+
+<!-- Room zone assignment popup -->
+<div id="zone-popup">
+    <div class="zp-handle"></div>
+    <div class="zp-title">Assign Room Type</div>
+    <button class="zbtn z-living"   onclick="assignRoom('living')">  🛋 <span style="flex:1">Living Room</span>  <span class="zb-dot" style="background:rgba(230,140,38,0.90)"></span></button>
+    <button class="zbtn z-bedroom"  onclick="assignRoom('bedroom')"> 🛏 <span style="flex:1">Bedroom</span>      <span class="zb-dot" style="background:rgba(70,110,220,0.90)"></span></button>
+    <button class="zbtn z-bathroom" onclick="assignRoom('bathroom')">🚿 <span style="flex:1">Bathroom</span>     <span class="zb-dot" style="background:rgba(38,185,205,0.90)"></span></button>
+    <button class="zbtn z-kitchen"  onclick="assignRoom('kitchen')"> 🍳 <span style="flex:1">Kitchen</span>      <span class="zb-dot" style="background:rgba(45,185,65,0.90)"></span></button>
+    <button class="zbtn z-office"   onclick="assignRoom('office')">  💼 <span style="flex:1">Office</span>       <span class="zb-dot" style="background:rgba(160,60,225,0.90)"></span></button>
+    <button class="zbtn zclear"     onclick="assignRoom(null)">       ✕ <span style="flex:1">Clear Zone</span></button>
+</div>
+
+<div id="loader"><div class="spinner"></div><span id="loader-text">Loading…</span></div>
+
+<div id="top-bar">
+    <div style="width:60px"></div>
+    <span id="top-title">ARchitect AI</span>
+    <div class="top-right">
+        <button class="tbtn" onclick="toggleLightPanel()">☀ Lighting</button>
+        <button class="tbtn" id="btnNight" onclick="toggleNight()">🌙 Night</button>
+    </div>
+</div>
+
+<div id="hint"></div>
+
+<!-- Floor Plan view bar -->
+<div id="fp-bar">
+    <button class="bbtn" id="btn-floor-down" onclick="changeFloor(-1)">↓</button>
+    <span id="floor-label">Floor 1 / 1</span>
+    <button class="bbtn" id="btn-floor-up" onclick="changeFloor(1)">↑</button>
+    <button class="bbtn fp-interior-btn" onclick="enterInteriorFromFloorPlan()">🏠 Interior</button>
+    <button class="bbtn fp-exit-btn" onclick="exitFloorPlan()">✕ Exit</button>
+</div>
+
+<!-- Interior Design bar — types match mesh names inside Augh.glb -->
+<div id="interior-bar">
+    <div class="frow">
+        <button class="fbtn fur-bed"     onclick="addFurniture('bed')">      <span class="fi">🛏</span>Bed</button>
+        <button class="fbtn fur-sofa1"   onclick="addFurniture('sofa1')">    <span class="fi">🛋</span>Sofa A</button>
+        <button class="fbtn fur-sofa2"   onclick="addFurniture('sofa2')">    <span class="fi">🛋</span>Sofa B</button>
+        <button class="fbtn fur-chair1"  onclick="addFurniture('chair1')">   <span class="fi">🪑</span>Chair A</button>
+        <button class="fbtn fur-chair2"  onclick="addFurniture('chair2')">   <span class="fi">🪑</span>Chair B</button>
+        <button class="fbtn fur-tv"      onclick="addFurniture('tv')">       <span class="fi">📺</span>TV</button>
+        <button class="fbtn fur-desk"    onclick="addFurniture('desk')">     <span class="fi">🖥</span>Desk</button>
+        <button class="fbtn fur-shelf"   onclick="addFurniture('shelf')">    <span class="fi">🗄</span>Shelf</button>
+        <button class="fbtn fur-cabinet" onclick="addFurniture('cabinet')">  <span class="fi">🗄</span>Cabinet</button>
+        <button class="fbtn fur-wardrobe"onclick="addFurniture('wardrobe')"> <span class="fi">👗</span>Wardrobe</button>
+        <button class="fbtn fur-fridge"  onclick="addFurniture('fridge')">   <span class="fi">❄</span>Fridge</button>
+        <button class="fbtn fur-sink"    onclick="addFurniture('sink')">     <span class="fi">🚿</span>Sink</button>
+        <button class="fbtn fur-toilet"  onclick="addFurniture('toilet')">   <span class="fi">🚽</span>Toilet</button>
+        <button class="fbtn fur-bathtub" onclick="addFurniture('bathtub')">  <span class="fi">🛁</span>Bathtub</button>
+        <button class="fbtn fur-lamp"    onclick="addFurniture('lamp')">     <span class="fi">💡</span>Lamp</button>
+    </div>
+    <div class="frow">
+        <button class="bbtn" id="btn-rotate-furn"  onclick="rotateFurniture()"  style="opacity:.5">↻ Rotate</button>
+        <button class="bbtn" id="btn-smaller-furn" onclick="scaleFurniture(0.8)"  style="opacity:.5">⊖ Smaller</button>
+        <button class="bbtn" id="btn-bigger-furn"  onclick="scaleFurniture(1.25)" style="opacity:.5">⊕ Bigger</button>
+        <button class="bbtn" id="btn-delete-furn"  onclick="deleteFurniture()"  style="opacity:.5">🗑 Remove</button>
+        <button class="bbtn" id="btn-interior-exit" onclick="interiorExit()">← Exit</button>
+    </div>
+</div>
+
+<div id="bottom-bar">
+    <button class="bbtn" id="btn360" onclick="start360()">⟳ Explore 360°</button>
+</div>
+
+<div id="light-panel">
+    <div class="lp-title">Lighting</div>
+    <div class="lp-row">
+        <div class="lp-label">Sun <span id="v-sun">3.0</span></div>
+        <input type="range" min="0" max="8" step="0.1" value="3.0"
+            oninput="sunLight.intensity=+this.value;document.getElementById('v-sun').textContent=(+this.value).toFixed(1)">
+    </div>
+    <div class="lp-row">
+        <div class="lp-label">Ambient <span id="v-amb">0.6</span></div>
+        <input type="range" min="0" max="2" step="0.05" value="0.6"
+            oninput="ambLight.intensity=+this.value;document.getElementById('v-amb').textContent=(+this.value).toFixed(2)">
+    </div>
+    <div class="lp-row">
+        <div class="lp-label">Exposure <span id="v-exp">1.2</span></div>
+        <input type="range" min="0.2" max="3" step="0.05" value="1.2"
+            oninput="if(pipeline)pipeline.imageProcessing.exposure=+this.value;document.getElementById('v-exp').textContent=(+this.value).toFixed(2)">
+    </div>
+</div>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script src="https://cdn.babylonjs.com/draco_wasm_wrapper_gltf.js"></script>
+<script>
+// Enable Draco mesh decompression for compressed GLB files
+BABYLON.DracoCompression.Configuration = {
+    decoder: {
+        wasmUrl:       'https://cdn.babylonjs.com/draco_decoder_gltf.wasm',
+        wasmBinaryUrl: 'https://cdn.babylonjs.com/draco_decoder_gltf.wasm',
+        fallbackUrl:   'https://cdn.babylonjs.com/draco_decoder_gltf.js'
+    }
+};
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  ENGINE  — photo is rendered as a Babylon background Layer, NOT via CSS
+//  compositing.  Flutter WebView cannot composite a transparent WebGL canvas
+//  over HTML elements, so the old alpha:true + clearColor(0,0,0,0) approach
+//  showed a solid black background.  The Layer approach keeps everything
+//  inside WebGL and works correctly in every WebView.
+// ═══════════════════════════════════════════════════════════════════════════
+const canvas = document.getElementById('renderCanvas');
+const engine = new BABYLON.Engine(canvas, true, {
+    preserveDrawingBuffer: false,
+    stencil: true,
+    premultipliedAlpha: false,
+    alpha: false   // no CSS compositing needed — photo lives inside Babylon
+});
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0, 0, 0, 1); // opaque — bgPhotoLayer covers it
+
+// ── CAMERA (ArcRotate, detached until 360 mode) ──
+const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, Math.PI/3.5, 20,
+    BABYLON.Vector3.Zero(), scene);
+camera.lowerBetaLimit = 0.05;
+camera.upperBetaLimit = Math.PI / 2;
+
+// ── LIGHTS ──
+const sunLight = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-1,-2,-1), scene);
+sunLight.intensity = 3.0;
+sunLight.diffuse   = new BABYLON.Color3(1.0, 0.97, 0.90);
+sunLight.specular  = new BABYLON.Color3(1.0, 0.95, 0.85);
+
+const fillLight = new BABYLON.DirectionalLight('fill', new BABYLON.Vector3(1,-0.3,1), scene);
+fillLight.intensity = 0.7;
+fillLight.diffuse   = new BABYLON.Color3(0.72, 0.82, 1.0);
+fillLight.specular  = new BABYLON.Color3(0,0,0);
+
+const ambLight = new BABYLON.HemisphericLight('amb', new BABYLON.Vector3(0,1,0), scene);
+ambLight.intensity   = 0.6;
+ambLight.diffuse     = new BABYLON.Color3(0.88, 0.93, 1.0);
+ambLight.groundColor = new BABYLON.Color3(0.52, 0.46, 0.38);
+ambLight.specular    = new BABYLON.Color3(0,0,0);
+
+// ── SHADOWS ──
+const shadows = new BABYLON.ShadowGenerator(512, sunLight);
+shadows.usePoissonSampling = true;
+shadows.normalBias = 0.01;
+shadows.bias = 0.0001;
+
+// ── ENVIRONMENT ──
+const envTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+    'https://assets.babylonjs.com/environments/environmentSpecular.env', scene);
+scene.environmentTexture   = envTexture;
+scene.environmentIntensity = 1.0;
+
+// ── STATE ──
+let pipeline = null, skybox = null, groundMesh = null;
+let isIn360 = false, isNight = false;
+
+// ── Viewport management ─────────────────────────────────────────────────────
+// The initial static view uses a land-clipped viewport (building aligned with photo).
+// Floor plan / interior modes need full-screen viewport for correct picking.
+// We save the initial viewport here so we can restore it when exiting those modes.
+let _initialViewport = null;
+
+// ── RENDER-ON-DEMAND: only re-draw when something changed ──
+// In normal (pre-360) view the building is static → no need to burn GPU
+// every frame. Set _dirty=true to request one render; continuous modes
+// (360, floor-plan, interior, furniture drag) bypass the check.
+let _dirty = true;
+function markDirty() { _dirty = true; }
+
+// ── 360 auto-spin observer handle ──────────────────────────────────────────
+let _spin360Obs = null;
+function _stop360Spin() {
+    if (_spin360Obs) {
+        scene.onBeforeRenderObservable.remove(_spin360Obs);
+        _spin360Obs = null;
+    }
+}
+let nightLights = [], currentBSize = 10, currentBHeight = 5;
+let pivot = null;
+let originalColors = new Map();
+
+// ── Floor Plan & Interior state ──
+let isFloorPlan = false, isInterior = false;
+let buildingTitle = '';
+let savedCam = null;
+let furnitureList = [], selectedFurPivot = null;
+let isDraggingFur = false, interiorFloor = null, hlLayer = null;
+let roofMeshes = [], fpGrid = null, selRing = null;
+let interiorLight = null;
+let serverBase = '';             // e.g. "http://192.168.1.212:8000"
+let furSources = [];             // hidden source meshes from Augh.glb
+let furGlbLoaded = false, furGlbLoading = false;
+let zoneGrid = [], activeZoneMesh = null;
+let isPlacingZone = false, zonePickFloor = null;
+let interiorFromFloorPlan = false, savedCamFloorPlan = null;
+
+// ── Multi-floor state ──
+// numFloors is estimated from building height (≈3.5m per floor).
+// Each floor stores its zone tiles and furniture pivots independently.
+let numFloors       = 1;
+let currentFloor    = 0;
+let floorH          = 3.5;       // metres per floor — refined in loadGLB
+let allZonesByFloor = {};        // { floorIdx: [tile, ...] }
+let allFurByFloor   = {};        // { floorIdx: [furPivot, ...] }
+let _meshStates     = new Map(); // saved { isVisible } per mesh
+let _matStates      = new Map(); // saved { mat, alpha, transMode } per material uniqueId
+let buildingFloorOffset = 0;    // world Y of ground-floor walkable surface (above foundation slab)
+let bgPhotoLayer    = null;
+let _photoB64Global = null;    // photo stored for 3D ground plane
+let _landX = 0, _landZ = 0;   // world XZ of land centre on the photo ground
+let _planeW = 20, _planeD = 20;// photo ground plane dimensions (world units)
+
+// ── HELPERS ──
+let hintTimer;
+function showHint(msg) {
+    const h = document.getElementById('hint');
+    h.textContent = msg; h.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => h.classList.remove('show'), 3500);
+}
+function toggleLightPanel() { document.getElementById('light-panel').classList.toggle('open'); }
+
+// ── LETTERBOX HELPER ────────────────────────────────────────────────────────
+// Returns where the photo image content sits on screen (accounting for
+// background-size:contain black bars).
+// Returns fractions of screen: { ix, iy, iw, ih }
+function getLetterboxInfo(imgDims) {
+    if (!imgDims || !imgDims.w || !imgDims.h) return { ix:0, iy:0, iw:1, ih:1 };
+    const sw = window.innerWidth, sh = window.innerHeight;
+    const ia = imgDims.w / imgDims.h;
+    const sa = sw / sh;
+    if (ia > sa) {
+        // Landscape photo on portrait screen → bars top & bottom
+        const ih = sa / ia;
+        return { ix: 0, iy: (1 - ih) / 2, iw: 1, ih };
+    } else {
+        // Portrait photo on landscape screen → bars left & right
+        const iw = ia / sa;
+        return { ix: (1 - iw) / 2, iy: 0, iw, ih: 1 };
+    }
+}
+
+// ── POLYGON OVERLAY ─────────────────────────────────────────────────────────
+// Draws the YOLO segmentation polygon on the photo as a green dashed border.
+// This shows the user exactly what land the AI detected.
+function drawPolygon(poly, imgDims) {
+    const shape = document.getElementById('poly-shape');
+    const svg   = document.getElementById('poly-svg');
+    if (!shape || !svg || !poly || !poly.length) return;
+
+    const { ix, iy, iw, ih } = getLetterboxInfo(imgDims);
+    const sw = window.innerWidth, sh = window.innerHeight;
+
+    // Map each polygon point from image-space (0-1) → screen pixels
+    const pts = poly.map(p =>
+        `${(ix + p[0] * iw) * sw},${(iy + p[1] * ih) * sh}`
+    ).join(' ');
+
+    shape.setAttribute('points', pts);
+    svg.style.opacity = '1';   // fade in the green outline
+}
+
+// ── POST PROCESSING ──
+function initPipeline() {
+    if (pipeline) return;
+    try {
+        pipeline = new BABYLON.DefaultRenderingPipeline('pp', true, scene, [camera]);
+        pipeline.fxaaEnabled = true; pipeline.samples = 2;
+        pipeline.bloomEnabled = true; pipeline.bloomThreshold = 0.85;
+        pipeline.bloomWeight = 0.10; pipeline.bloomKernel = 32;
+        pipeline.imageProcessingEnabled = true;
+        pipeline.imageProcessing.toneMappingEnabled = true;
+        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+        pipeline.imageProcessing.contrast = 1.1;
+        pipeline.imageProcessing.exposure = 1.2;
+    } catch(e) { pipeline = null; }
+}
+
+// ── NIGHT MODE ──
+function toggleNight() {
+    isNight = !isNight;
+    const btn = document.getElementById('btnNight');
+    if (isNight) {
+        sunLight.intensity = 0.2; fillLight.intensity = 0.05; ambLight.intensity = 0.1;
+        if (pipeline) { pipeline.imageProcessing.exposure = 2.0; pipeline.bloomWeight = 0.5; }
+        btn.textContent = '☀ Day'; btn.classList.add('active');
+        [new BABYLON.Vector3(3,2,3), new BABYLON.Vector3(-3,2,3),
+         new BABYLON.Vector3(3,2,-3), new BABYLON.Vector3(-3,2,-3)].forEach((pos,i) => {
+            const l = new BABYLON.PointLight('nl'+i, pos, scene);
+            l.diffuse = new BABYLON.Color3(1,0.82,0.55); l.intensity = 3; l.range = 14;
+            nightLights.push(l);
+        });
+    } else {
+        sunLight.intensity = 3.0; fillLight.intensity = 0.7; ambLight.intensity = 0.6;
+        if (pipeline) { pipeline.imageProcessing.exposure = 1.2; pipeline.bloomWeight = 0.10; }
+        btn.textContent = '🌙 Night'; btn.classList.remove('active');
+        nightLights.forEach(l => l.dispose()); nightLights = [];
+    }
+    markDirty();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  EXPLORE 360
+// ═══════════════════════════════════════════════════════════════════════════
+function start360() {
+    if (isIn360) return;
+    if (isInterior)  { showHint('Exit Interior mode first'); return; }
+    if (isFloorPlan) { exitFloorPlan(); }
+    isIn360 = true;
+    scene.unfreezeActiveMeshes();   // allow full frustum culling during free-roam
+    markDirty();
+    document.getElementById('btn360').style.display = 'none';
+
+    // Hide flat photo background — 360 sphere takes over
+    if (bgPhotoLayer) bgPhotoLayer.isEnabled = false;
+    document.getElementById('poly-svg').style.opacity = '0';
+
+    // Show photo ground plane (building sits on land photo)
+    const photoGnd = scene.getMeshByName('photoGnd');
+    if (photoGnd) photoGnd.isVisible = true;
+
+    // Build photo panorama sphere (image × 4 around 360°) if not already built
+    if (_photoB64Global && !scene.getMeshByName('envDome')) {
+        const DOME_DIAM = Math.max(_planeW, _planeD) * 6;
+        const dome = BABYLON.MeshBuilder.CreateSphere('envDome', {
+            diameter: DOME_DIAM,
+            segments: 32,
+            sideOrientation: BABYLON.Mesh.BACKSIDE
+        }, scene);
+        dome.position.y = 0;
+        const domeMat = new BABYLON.StandardMaterial('domeMat', scene);
+        const domeTex = new BABYLON.Texture(
+            'data:image/jpeg;base64,' + _photoB64Global,
+            scene, false, true, BABYLON.Texture.BILINEAR_SAMPLINGMODE);
+        domeTex.uScale = 4;  // 4 copies of photo around full 360°
+        domeTex.wrapU  = BABYLON.Texture.WRAP_ADDRESSMODE;
+        domeTex.wrapV  = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        domeMat.emissiveTexture = domeTex;
+        domeMat.emissiveColor   = new BABYLON.Color3(1, 1, 1);
+        domeMat.disableLighting = true;
+        dome.material = domeMat;
+    }
+
+    scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+    camera.viewport  = new BABYLON.Viewport(0, 0, 1, 1);
+
+    camera.fov    = 1.0;
+    camera.radius = Math.max(currentBSize, currentBHeight * 0.7) * 2.5;
+    camera.target = new BABYLON.Vector3(_landX, currentBHeight * 0.35, _landZ);
+    camera.alpha  = -Math.PI / 2;
+    camera.lowerBetaLimit   = 0;
+    camera.upperBetaLimit   = Math.PI;
+    camera.lowerRadiusLimit = 0.5;
+    camera.upperRadiusLimit = Math.max(_planeW, _planeD) * 2;
+
+    setTimeout(() => {
+        camera.attachControl(canvas, true);
+        _spin360Obs = scene.onBeforeRenderObservable.add(() => {
+            camera.alpha += 0.004;
+        });
+        scene.onPointerObservable.addOnce(() => { _stop360Spin(); });
+        showHint('Full 360° · Drag · Pinch to zoom · Look above & below');
+    }, 1500);
+}
+
+// ── GROUND (hidden until 360 mode) ──
+function buildGround(bSize) {
+    try { skybox = scene.createDefaultSkybox(envTexture, true, 500, 0.3); skybox.isVisible = false; } catch(e){}
+    const gs = Math.max(bSize * 8, 80);
+    groundMesh = BABYLON.MeshBuilder.CreateGround('gnd', {width:gs, height:gs}, scene);
+    groundMesh.receiveShadows = true; groundMesh.isVisible = false;
+    const gm = new BABYLON.PBRMaterial('gm', scene);
+    gm.albedoColor = new BABYLON.Color3(0.68,0.61,0.46); gm.metallic=0; gm.roughness=0.97;
+    groundMesh.material = gm;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  initViewer — called from Flutter after page load
+//
+//  glbUrl   : http://192.168.x.x:8000/models/HOUSE1.glb
+//  photoB64 : base64 JPEG string (no data: prefix)
+//  bounds   : { x1,y1,x2,y2,width,height,center_x,center_y,corners,polygon }
+//  title    : building name
+// ═══════════════════════════════════════════════════════════════════════════
+function initViewer(glbUrl, photoB64, bounds, title) {
+    // Extract base server URL for loading interior pack later
+    const _mi = glbUrl ? glbUrl.indexOf('/models/') : -1;
+    if (_mi !== -1) serverBase = glbUrl.substring(0, _mi);
+
+    if (title) { document.getElementById('top-title').textContent = title; buildingTitle = title; }
+    document.getElementById('loader-text').textContent = 'Loading ' + (title || 'building') + '…';
+
+    // Show photo as flat background in normal view (same reliable approach as before)
+    if (photoB64) {
+        _photoB64Global = photoB64;
+        const _photoTex = new BABYLON.Texture(
+            'data:image/jpeg;base64,' + photoB64, scene,
+            false, true, BABYLON.Texture.BILINEAR_SAMPLINGMODE
+        );
+        _photoTex.hasAlpha = false;
+        bgPhotoLayer = new BABYLON.Layer('bgPhoto', null, scene, true);
+        bgPhotoLayer.texture = _photoTex;
+        bgPhotoLayer.isBackground = true;
+    }
+
+    // Load image dimensions for letterbox-aware calculations
+    const imgDimsPromise = new Promise(resolve => {
+        if (!photoB64) return resolve(null);
+        const tmp = new Image();
+        tmp.onload  = () => resolve({ w: tmp.naturalWidth, h: tmp.naturalHeight });
+        tmp.onerror = () => resolve(null);
+        tmp.src = 'data:image/jpeg;base64,' + photoB64;
+    });
+
+    // Use Babylon's streaming loader directly — avoids loading entire file into RAM
+    const lastSlash = glbUrl.lastIndexOf('/');
+    const rootUrl  = glbUrl.substring(0, lastSlash + 1);
+    const fileName = decodeURIComponent(glbUrl.substring(lastSlash + 1));
+
+    imgDimsPromise.then(imgDims => {
+        loadGLB(rootUrl, fileName, bounds, imgDims);
+    }).catch(e => {
+        document.getElementById('loader').innerHTML =
+            '<div style="color:#ff6b6b;text-align:center;padding:24px;line-height:1.9">' +
+            '⚠ Could not load model<br><small>' + e.message + '</small><br>' +
+            '<small style="opacity:.6">Check that the server is running.</small></div>';
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  GLB patcher — fixes multiple classes of "Invalid value" errors that some
+//  exporters produce. Applied in-memory before Babylon.js sees the bytes.
+//
+//  Fixes:
+//   1. Mesh primitive mode outside 0-6  → clamp to 4 (TRIANGLES)
+//   2. Material texCoord > available    → clamp to 0
+//      (Babylon throws "Invalid value (N)" when referencing TEXCOORD_N that
+//       the mesh's attributes don't actually contain.)
+// ═══════════════════════════════════════════════════════════════════════════
+function _patchGLB(buffer) {
+    const view = new DataView(buffer);
+    if (view.getUint32(0, true) !== 0x46546C67) return buffer; // not GLB
+    const jsonChunkLen  = view.getUint32(12, true);
+    const jsonChunkType = view.getUint32(16, true);
+    if (jsonChunkType !== 0x4E4F534A) return buffer; // not JSON chunk
+
+    let gltf;
+    try { gltf = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, jsonChunkLen))); }
+    catch { return buffer; }
+
+    let changed = false;
+
+    // ── 1. Fix mesh primitive modes ─────────────────────────────────────────
+    (gltf.meshes || []).forEach(mesh => {
+        (mesh.primitives || []).forEach(prim => {
+            if (prim.mode !== undefined && (prim.mode < 0 || prim.mode > 6)) {
+                prim.mode = 4; changed = true; // fallback to TRIANGLES
+            }
+        });
+    });
+
+    // ── 2. Fix material texCoord references ─────────────────────────────────
+    // Find the highest TEXCOORD_N index that actually exists across all primitives.
+    let maxTexCoord = 0;
+    (gltf.meshes || []).forEach(mesh => {
+        (mesh.primitives || []).forEach(prim => {
+            Object.keys(prim.attributes || {}).forEach(k => {
+                const m = k.match(/^TEXCOORD_(\d+)$/);
+                if (m) maxTexCoord = Math.max(maxTexCoord, parseInt(m[1], 10));
+            });
+        });
+    });
+
+    // Clamp every material's texture-info texCoord to [0, maxTexCoord].
+    // Covers both PBR and KHR extensions.
+    function _clampTexCoord(obj) {
+        if (!obj || obj.texCoord === undefined) return;
+        if (obj.texCoord < 0 || obj.texCoord > maxTexCoord) {
+            obj.texCoord = 0; changed = true;
+        }
+    }
+    (gltf.materials || []).forEach(mat => {
+        const pbr = mat.pbrMetallicRoughness;
+        if (pbr) {
+            _clampTexCoord(pbr.baseColorTexture);
+            _clampTexCoord(pbr.metallicRoughnessTexture);
+        }
+        _clampTexCoord(mat.normalTexture);
+        _clampTexCoord(mat.occlusionTexture);
+        _clampTexCoord(mat.emissiveTexture);
+        // KHR_materials_* extensions may also carry textures
+        Object.values(mat.extensions || {}).forEach(ext => {
+            if (typeof ext === 'object' && ext !== null) {
+                Object.values(ext).forEach(v => {
+                    if (v && typeof v === 'object' && v.texCoord !== undefined)
+                        _clampTexCoord(v);
+                });
+            }
+        });
+    });
+
+    if (!changed) return buffer;
+
+    // Re-encode JSON, padded to 4-byte boundary with spaces
+    let newJson = new TextEncoder().encode(JSON.stringify(gltf));
+    while (newJson.length % 4 !== 0) {
+        const p = new Uint8Array(newJson.length + 1);
+        p.set(newJson); p[newJson.length] = 0x20; newJson = p;
+    }
+
+    // Rebuild GLB — binary chunk is copied verbatim
+    const binOffset = 20 + jsonChunkLen;
+    const binSize   = buffer.byteLength - binOffset;
+    const newTotal  = 12 + 8 + newJson.length + binSize;
+    const out = new ArrayBuffer(newTotal);
+    const outV = new DataView(out), outB = new Uint8Array(out);
+
+    outV.setUint32(0, 0x46546C67, true); outV.setUint32(4, 2, true);
+    outV.setUint32(8, newTotal, true);
+    outV.setUint32(12, newJson.length, true); outV.setUint32(16, 0x4E4F534A, true);
+    outB.set(newJson, 20);
+    if (binSize > 0) outB.set(new Uint8Array(buffer, binOffset), 20 + newJson.length);
+    return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  EXACT LAND BOUNDARY MATCHING  —  DLT + Zhang PnP
+//
+//  _solvePnP() computes the camera matrix that makes the building's 3D
+//  footprint corners project EXACTLY onto the YOLO land quad corners.
+//
+//  Pipeline:
+//    1. _computeHomography() — DLT 8×8 linear system → 3×3 H
+//    2. _decomposeH()        — Zhang self-calibration → focal length, R, t
+//    3. _solvePnP()          — entry point, returns Babylon camera params
+//    4. _calibrateFallback() — VP-based fallback if PnP geometry is bad
+// ═══════════════════════════════════════════════════════════════════════════
+
+function _lineIntersect2D(p1, p2, p3, p4) {
+    const dx12=p2[0]-p1[0], dy12=p2[1]-p1[1];
+    const dx34=p4[0]-p3[0], dy34=p4[1]-p3[1];
+    const det=dx12*dy34-dy12*dx34;
+    if (Math.abs(det)<1e-12) return null;
+    const t=((p3[0]-p1[0])*dy34-(p3[1]-p1[1])*dx34)/det;
+    return [p1[0]+t*dx12, p1[1]+t*dy12];
+}
+
+// Gaussian elimination with partial pivoting — solves 8×8 system Ax=b
+function _solveGauss8(A, b) {
+    const n=8, M=A.map((r,i)=>[...r,b[i]]);
+    for (let c=0;c<n;c++) {
+        let mx=c;
+        for (let r=c+1;r<n;r++) if (Math.abs(M[r][c])>Math.abs(M[mx][c])) mx=r;
+        [M[c],M[mx]]=[M[mx],M[c]];
+        if (Math.abs(M[c][c])<1e-12) return null;
+        for (let r=c+1;r<n;r++) {
+            const f=M[r][c]/M[c][c];
+            for (let k=c;k<=n;k++) M[r][k]-=f*M[c][k];
+        }
+    }
+    const x=new Array(n).fill(0);
+    for (let i=n-1;i>=0;i--) {
+        x[i]=M[i][n];
+        for (let j=i+1;j<n;j++) x[i]-=M[i][j]*x[j];
+        x[i]/=M[i][i];
+    }
+    return x;
+}
+
+// DLT homography from 4 world-XZ points to 4 NDC image points.
+// worldPts: [[X,Z],...], imgPts: [[u,v],...] (NDC, Y-up, center=0)
+function _computeHomography(worldPts, imgPts) {
+    const A=[],b=[];
+    for (let i=0;i<4;i++) {
+        const [X,Z]=worldPts[i], [u,v]=imgPts[i];
+        A.push([X,Z,1,0,0,0,-u*X,-u*Z]); b.push(u);
+        A.push([0,0,0,X,Z,1,-v*X,-v*Z]); b.push(v);
+    }
+    const h=_solveGauss8(A,b);
+    if (!h) return null;
+    return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
+}
+
+// Zhang self-calibration: decompose H = K[r1|r3|t] into f, R, camera position.
+function _decomposeH(H) {
+    const h1=[H[0][0],H[1][0],H[2][0]];
+    const h2=[H[0][1],H[1][1],H[2][1]];
+    const h3=[H[0][2],H[1][2],H[2][2]];
+
+    // Estimate focal length f from two orthogonality constraints on R.
+    // For K=diag(f,f,1): B=K^{-T}K^{-1}=diag(1/f²,1/f²,1)
+    // Constraint A: h1·Bh2=0  → f²=-(h1x·h2x+h1y·h2y)/(h1z·h2z)
+    // Constraint B: h1·Bh1=h2·Bh2 → f²=(|h2xy|²-|h1xy|²)/(h1z²-h2z²)
+    const nA=-(h1[0]*h2[0]+h1[1]*h2[1]), dA=h1[2]*h2[2];
+    const nB=h2[0]**2+h2[1]**2-h1[0]**2-h1[1]**2, dB=h1[2]**2-h2[2]**2;
+    let f2=0, cnt=0;
+    if (Math.abs(dA)>1e-12 && nA/dA>0.01) { f2+=nA/dA; cnt++; }
+    if (Math.abs(dB)>1e-12 && nB/dB>0.01) { f2+=nB/dB; cnt++; }
+    const f=Math.sqrt(cnt>0 ? f2/cnt : 1.0);
+
+    // K^{-1} v = [v[0]/f, v[1]/f, v[2]]
+    const Ki=v=>[v[0]/f,v[1]/f,v[2]];
+    const r1r=Ki(h1), r3r=Ki(h2), tr=Ki(h3);
+    const lam=1/Math.hypot(r1r[0],r1r[1],r1r[2]);
+    let r1=r1r.map(v=>v*lam), r3=r3r.map(v=>v*lam), t=tr.map(v=>v*lam);
+
+    // ── Sign disambiguation ───────────────────────────────────────────────
+    // The DLT has two valid solutions (camera in front vs behind the scene).
+    // The correct one has the world origin in FRONT of the camera: t[2] > 0.
+    // If t[2] < 0, negate r1, r3, t to pick the other solution.
+    if (t[2] < 0) { r1=r1.map(v=>-v); r3=r3.map(v=>-v); t=t.map(v=>-v); }
+
+    // r2 = r1 × r3
+    const r2=[r1[1]*r3[2]-r1[2]*r3[1], r1[2]*r3[0]-r1[0]*r3[2], r1[0]*r3[1]-r1[1]*r3[0]];
+    // Camera world position: X_cam = -R^T t  (R columns are r1,r2,r3)
+    const camPos=[
+        -(r1[0]*t[0]+r1[1]*t[1]+r1[2]*t[2]),
+        -(r2[0]*t[0]+r2[1]*t[1]+r2[2]*t[2]),
+        -(r3[0]*t[0]+r3[1]*t[1]+r3[2]*t[2])
+    ];
+    return { camPos, r1, r2, r3, t, f };
+}
+
+/**
+ * Full PnP solver.  Maps building footprint corners (3D) → land corners (2D).
+ *
+ * The building's centred footprint in Babylon world space is:
+ *   tl=(-W/2,0,-D/2)  tr=(+W/2,0,-D/2)
+ *   bl=(-W/2,0,+D/2)  br=(+W/2,0,+D/2)
+ *
+ * These must project onto the YOLO land corners in the image.
+ * DLT solves for H; Zhang decomposition gives the camera matrix.
+ *
+ * Returns { alpha, beta, radius, fov, targetY } for ArcRotateCamera,
+ * or null if the geometry is degenerate (camera underground, etc.).
+ */
+function _solvePnP(corners, buildingW, buildingD, bHeight) {
+    const {tl,tr,bl,br}=corners;
+    const toNDC=p=>[(p[0]-0.5)*2,(0.5-p[1])*2];
+    const imgPts=[tl,tr,bl,br].map(toNDC);
+    const hw=buildingW/2, hd=buildingD/2;
+    // World XZ coords matching corner order tl/tr/bl/br
+    const worldPts=[[-hw,-hd],[hw,-hd],[-hw,hd],[hw,hd]];
+
+    const H=_computeHomography(worldPts,imgPts);
+    if (!H) return null;
+    const dec=_decomposeH(H);
+    if (!dec) return null;
+
+    const [cx,cy,cz]=dec.camPos;
+
+    // Camera must be above ground AND above the target level so beta < PI/2
+    // (camera above what it's looking at — otherwise we'd be inside the building)
+    const targetY = 0;   // aim at ground level, not mid-building
+    if (cy <= targetY + 0.1) return null;   // underground or below target → fallback
+
+    const dx=cx, dy=cy-targetY, dz=cz;
+    const radius=Math.hypot(dx,dy,dz);
+    if (radius<0.001) return null;
+
+    // ArcRotateCamera alpha/beta from camera world position
+    const alpha=Math.atan2(dx,dz)-Math.PI/2;
+    const beta =Math.acos(Math.max(-1,Math.min(1,dy/radius)));
+
+    // Reject if camera is below horizontal — means PnP gave bad geometry
+    if (beta >= Math.PI/2) return null;
+
+    // Vertical FOV for Babylon (dec.f is focal length in NDC where half-width=1)
+    const fovH=2*Math.atan(1.0/Math.max(dec.f,0.1));
+    const fovV=2*Math.atan(Math.tan(fovH/2)*(9/16));
+    const fov =Math.max(0.40,Math.min(1.40,fovV*1.08));
+
+    return {
+        alpha,
+        beta: Math.max(0.05, Math.min(Math.PI*0.49, beta)),
+        radius,
+        fov,
+        targetY
+    };
+}
+
+// VP-based fallback used when PnP geometry is degenerate
+function _calibrateFallback(corners, bSize, bHeight) {
+    const {tl,tr,bl,br}=corners;
+    const FOV_H=63*Math.PI/180, fN=0.5/Math.tan(FOV_H/2);
+    const vpD=_lineIntersect2D(tl,bl,tr,br);
+    const nDx=br[0]-bl[0], nDy=br[1]-bl[1];
+    const nearAngle=Math.atan2(nDy,nDx);
+    let pitch=Math.PI/4, yaw=0;
+    if (vpD) {
+        pitch=Math.atan2(0.5-vpD[1],fN);
+        pitch=Math.max(0.05,Math.min(Math.PI*0.45,pitch));
+        yaw=Math.max(-0.5,Math.min(0.5,Math.atan2(vpD[0]-0.5,fN)));
+    }
+    const nearW=Math.hypot(nDx,nDy);
+    const dist=nearW>0.02?(bSize*fN*Math.max(0.18,Math.cos(pitch)))/nearW:bSize*2.5;
+    const fovV=2*Math.atan(Math.tan(FOV_H/2)*(9/16))*1.25;
+    return {
+        alpha: -Math.PI/2-nearAngle+yaw,
+        beta:  Math.max(0.08,Math.min(Math.PI*0.48,Math.PI/2-pitch)),
+        radius:Math.max(bSize*1.1,Math.min(bSize*14,dist)),
+        fov:   Math.max(0.52,Math.min(1.10,fovV)),
+        pivotRotY: nearAngle,
+        targetY: bHeight*0.30
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  loadGLB — loads model, projects building footprint onto land boundaries,
+//            positions camera so the footprint matches exactly
+// ═══════════════════════════════════════════════════════════════════════════
+function loadGLB(rootUrl, filename, bounds, imgDims, _isRetry) {
+    _isRetry = !!_isRetry;
+    BABYLON.SceneLoader.ImportMesh('', rootUrl, filename, scene,
+        meshes => {
+            if (!meshes || meshes.length === 0) return;
+
+            // ── Hide flat ground planes inside the GLB ──
+            meshes.forEach(m => {
+                if (!m.getBoundingInfo) return;
+                m.computeWorldMatrix(true);
+                const b = m.getBoundingInfo().boundingBox;
+                const s = b.maximumWorld.subtract(b.minimumWorld);
+                if (s.y < 0.15 && s.x > 3 && s.z > 3) m.isVisible = false;
+            });
+
+            // ── Bounding box of the whole model ──
+            let mn = new BABYLON.Vector3( Infinity, Infinity, Infinity);
+            let mx = new BABYLON.Vector3(-Infinity,-Infinity,-Infinity);
+            meshes.forEach(m => {
+                if (!m.isVisible || !m.getBoundingInfo) return;
+                m.computeWorldMatrix(true);
+                const b = m.getBoundingInfo().boundingBox;
+                mn = BABYLON.Vector3.Minimize(mn, b.minimumWorld);
+                mx = BABYLON.Vector3.Maximize(mx, b.maximumWorld);
+            });
+
+            // ── Wrap all meshes under a single pivot node ──
+            // This lets us center + rotate the whole building cleanly.
+            pivot = new BABYLON.TransformNode('pivot', scene);
+            meshes.forEach(m => { if (!m.parent) m.parent = pivot; });
+
+            // Center horizontally, sit base on y=0
+            pivot.position.x = -(mn.x + mx.x) / 2;
+            pivot.position.z = -(mn.z + mx.z) / 2;
+            pivot.position.y = -mn.y;
+
+            const buildingW = mx.x - mn.x;   // actual X footprint (Babylon units)
+            const buildingD = mx.z - mn.z;   // actual Z footprint (Babylon units)
+            const bSize   = Math.max(buildingW, buildingD);
+            const bHeight = mx.y - mn.y;
+            currentBSize  = bSize;
+            currentBHeight = bHeight;
+
+            // ── Diorama: compute photo-plane size then offset building to land ──
+            {
+                const imgAspect = imgDims ? imgDims.w / imgDims.h : 1.333;
+                const landFracW = (bounds && bounds.width > 0.05) ? bounds.width : 0.35;
+                _planeW = Math.max(buildingW / landFracW, bSize * 3);
+                _planeD = _planeW / imgAspect;
+                _landX  = bounds ? (bounds.center_x - 0.5) * _planeW : 0;
+                _landZ  = bounds ? (bounds.center_y - 0.5) * _planeD : 0;
+                pivot.position.x += _landX;
+                pivot.position.z += _landZ;
+            }
+
+            // Estimate number of floors (≈3.5m each; single-story houses ≈1 floor)
+            numFloors  = Math.max(1, Math.round(bHeight / 3.5));
+            floorH     = bHeight / numFloors;
+
+            // ── Detect floor-surface Y ─────────────────────────────────────
+            // Models often include a foundation slab (0–40 cm thick) whose TOP
+            // surface is the actual walkable floor.  Zone tiles must be placed
+            // ABOVE that surface or the opaque slab covers them.
+            buildingFloorOffset = 0;
+            {
+                const scanTop = Math.min(0.6, bHeight * 0.15);
+                meshes.forEach(m => {
+                    if (!m.isVisible || !m.getBoundingInfo) return;
+                    m.computeWorldMatrix(true);
+                    const b = m.getBoundingInfo().boundingBox;
+                    const yTop  = b.maximumWorld.y;
+                    const yH    = yTop - b.minimumWorld.y;
+                    const xExt  = b.maximumWorld.x - b.minimumWorld.x;
+                    const zExt  = b.maximumWorld.z - b.minimumWorld.z;
+                    // Thin wide slab near the bottom = floor surface
+                    if (yTop > 0.02 && yTop < scanTop && yH < 0.45
+                            && Math.min(xExt, zExt) > bSize * 0.2) {
+                        buildingFloorOffset = Math.max(buildingFloorOffset, yTop);
+                    }
+                });
+            }
+
+            // ── Performance tiers ──────────────────────────────────────
+            // light  : < 100k verts  → full PBR, shadows, post-processing
+            // heavy  : 100k–400k     → skip PBR upgrade + shadows
+            // very heavy : > 400k   → additionally reduce render resolution,
+            //                         skip env texture, freeze world matrices
+            let totalVerts = 0;
+            meshes.forEach(m => { if (m.getTotalVertices) totalVerts += m.getTotalVertices(); });
+            const isHeavy     = totalVerts > 100000;
+            const isVeryHeavy = totalVerts > 400000;
+
+            if (!isHeavy) {
+                const seen = new Set();
+                function upgradeMat(mat) {
+                    if (!mat || seen.has(mat.uniqueId)) return;
+                    seen.add(mat.uniqueId);
+                    mat.backFaceCulling = false; mat.twoSidedLighting = true;
+                    if (mat instanceof BABYLON.PBRMaterial || mat instanceof BABYLON.PBRMetallicRoughnessMaterial)
+                        mat.environmentIntensity = 1.0;
+                    if (mat instanceof BABYLON.StandardMaterial) {
+                        const pbr = new BABYLON.PBRMaterial(mat.name+'_pbr', scene);
+                        pbr.backFaceCulling = false; pbr.twoSidedLighting = true;
+                        if (mat.diffuseColor)   pbr.albedoColor   = mat.diffuseColor.clone();
+                        if (mat.diffuseTexture) pbr.albedoTexture = mat.diffuseTexture;
+                        if (mat.emissiveColor)  pbr.emissiveColor = mat.emissiveColor.clone();
+                        if (mat.alpha < 1) pbr.alpha = mat.alpha;
+                        pbr.metallic = 0; pbr.roughness = 0.78; pbr.environmentIntensity = 1.0;
+                        mat.dispose();
+                    }
+                }
+                scene.materials.forEach(upgradeMat);
+                meshes.forEach(function walk(m) {
+                    if (m.material) upgradeMat(m.material);
+                    m.getChildMeshes(false).forEach(walk);
+                });
+                meshes.forEach(m => {
+                    if (!m.isVisible || !m.getTotalVertices || m.getTotalVertices() === 0) return;
+                    try { shadows.addShadowCaster(m, true); } catch(e){}
+                    m.receiveShadows = true;
+                });
+                initPipeline();
+            } else {
+                meshes.forEach(m => {
+                    if (m.material) {
+                        m.material.backFaceCulling = false;
+                        m.material.twoSidedLighting = true;
+                    }
+                });
+                if (isVeryHeavy) {
+                    // Render at 67% resolution — cuts GPU work by ~44%
+                    engine.setHardwareScalingLevel(1.5);
+                    // Drop expensive environment reflections
+                    scene.environmentIntensity = 0;
+                    // Skip pointer hit-testing on every mouse-move
+                    scene.skipPointerMovePicking = true;
+                }
+            }
+
+            // Skip frustum culling recalculation — building is always fully
+            // in frame in the static preview. Safe to undo on entering 360 etc.
+            if (isHeavy) scene.freezeActiveMeshes();
+
+            buildGround(bSize);
+
+            // ── Ground plane with photo — building sits on the real land ──
+            if (_photoB64Global) {
+                const gnd = BABYLON.MeshBuilder.CreateGround('photoGnd',
+                    { width: _planeW, height: _planeD }, scene);
+                gnd.position.y = -0.01;
+                const gndMat = new BABYLON.StandardMaterial('gndMat', scene);
+                const gndTex = new BABYLON.Texture(
+                    'data:image/jpeg;base64,' + _photoB64Global,
+                    scene, false, true, BABYLON.Texture.BILINEAR_SAMPLINGMODE);
+                gndTex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+                gndTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+                gndMat.emissiveTexture = gndTex;
+                gndMat.emissiveColor   = new BABYLON.Color3(1, 1, 1);
+                gndMat.disableLighting = true;
+                gnd.material = gndMat;
+                gnd.isVisible = false; // hidden in normal view (bgPhotoLayer handles it)
+                                       // shown in 360 mode via start360()
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            //  DIORAMA CAMERA — simple top-angle orbit, no PnP needed
+            //
+            //  _solvePnP() uses the DLT homography + Zhang decomposition to
+            //  find the ONE camera position/FOV that makes the building's 3D
+            //  footprint corners project onto EXACTLY the land corners from
+            //  the YOLO model.  No guessing, no heuristics.
+            //
+            //  If PnP geometry is degenerate, _calibrateFallback() is used.
+            // ══════════════════════════════════════════════════════════════
+
+            // 360 environment view: camera looks at building, panorama sphere surrounds
+            camera.viewport  = new BABYLON.Viewport(0, 0, 1, 1);
+            _initialViewport = new BABYLON.Viewport(0, 0, 1, 1);
+
+            camera.fov    = 1.0;
+            camera.alpha  = -Math.PI / 2;
+            camera.beta   = Math.PI / 3.5;    // slightly above the building
+            camera.radius = Math.max(_planeW, _planeD) * 0.45;
+            camera.target = new BABYLON.Vector3(_landX, bHeight * 0.3, _landZ);
+
+            camera.lowerBetaLimit   = 0.05;
+            camera.upperBetaLimit   = Math.PI / 2;
+            camera.lowerRadiusLimit = bSize * 0.3;
+            camera.upperRadiusLimit = Math.max(_planeW, _planeD) * 2;
+            camera.attachControl(canvas, true);
+
+            // ── Save original material colors for reset ──────────────
+            originalColors.clear();
+            scene.materials.forEach(mat => {
+                if (mat.albedoColor) originalColors.set(mat.uniqueId, mat.albedoColor.clone());
+                else if (mat.diffuseColor) originalColors.set(mat.uniqueId, mat.diffuseColor.clone());
+            });
+
+            document.getElementById('loader').classList.add('hidden');
+            showHint('Tap the chat button to customize your building with AI');
+            markDirty();
+        },
+        (evt) => {
+            // Show download progress for large files
+            if (evt.lengthComputable && evt.total > 0) {
+                const pct = Math.round(evt.loaded / evt.total * 100);
+                document.getElementById('loader-text').textContent = 'Loading… ' + pct + '%';
+            }
+        },
+        (sc, msg, ex) => {
+            console.error(msg, ex);
+            const errText = (msg || '') + (ex ? String(ex) : '');
+            // "Invalid value (N)" means the file contains an unsupported mesh
+            // primitive mode (e.g. mode:7).  Fetch the raw bytes, patch the
+            // GLB JSON header, and retry once from a Blob URL.
+            if (!_isRetry && /invalid value/i.test(errText)) {
+                document.getElementById('loader-text').textContent = 'Patching model format…';
+                fetch(rootUrl + filename)
+                    .then(r => {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.arrayBuffer();
+                    })
+                    .then(buf => {
+                        const fixed = _patchGLB(buf);
+                        const blob  = new Blob([fixed], { type: 'model/gltf-binary' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        // Retry with patched data; release blob after 5 min
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 300000);
+                        loadGLB('', blobUrl, bounds, imgDims, true);
+                    })
+                    .catch(() => {
+                        document.getElementById('loader').innerHTML =
+                            '<div style="color:#ff6b6b;padding:20px;text-align:center">' +
+                            'Failed to load model.<br><small>' + msg + '</small></div>';
+                    });
+            } else {
+                document.getElementById('loader').innerHTML =
+                    '<div style="color:#ff6b6b;padding:20px;text-align:center">' +
+                    'Failed to load model.<br><small>' + msg + '</small></div>';
+            }
+        },
+        '.glb'
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  COMMAND API  — called from Flutter via runJavaScript('applyCommandObj(...)')
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Called from Flutter with the device's bottom inset (Samsung nav bar height)
+function setFlutterBottomInset(navBarPx) {
+    const total = navBarPx + 64 + 16; // nav bar + Flutter toolbar + gap
+    ['bottom-bar','fp-bar','interior-bar'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.bottom = total + 'px';
+    });
+}
+
+function applyCommandObj(cmd) {
+    if (!cmd || !cmd.action) return;
+    switch (cmd.action) {
+        case 'changeColor':   doChangeColor(cmd.target, cmd.color);            break;
+        case 'zoom':          doZoom(cmd.level);                                break;
+        case 'night':         if (!isNight) toggleNight();                     break;
+        case 'day':           if (isNight)  toggleNight();                     break;
+        case 'explore360':    if (!isIn360) start360();                        break;
+        case 'rotate':        doRotate(cmd.degrees || 45);                     break;
+        case 'addObject':     doAddObject(cmd.type, cmd.count || 1);           break;
+        case 'resetColors':   doResetColors();                                 break;
+        case 'floorPlan':     isFloorPlan ? exitFloorPlan() : enterFloorPlan(); break;
+        case 'interior':      isInterior  ? exitInterior()  : enterInterior();  break;
+    }
+}
+
+// ── Change material colors ──────────────────────────────────────────────────
+function doChangeColor(target, hex) {
+    if (!hex) return;
+    // Ensure hex is valid
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) hex = '#' + hex.replace('#','').slice(0,6).padEnd(6,'0');
+    const c = BABYLON.Color3.FromHexString(hex);
+    const t = (target || 'all').toLowerCase();
+
+    scene.meshes.forEach(m => {
+        if (!m.isVisible || !m.material) return;
+        const n  = (m.name           || '').toLowerCase();
+        const mn = (m.material.name  || '').toLowerCase();
+
+        let hit = false;
+        if (t === 'all') {
+            hit = true;
+        } else if (t === 'walls') {
+            hit = n.includes('wall') || mn.includes('wall') ||
+                  n.includes('concrete') || mn.includes('concrete') ||
+                  n.includes('facade') || mn.includes('facade') ||
+                  n.includes('exterior') || mn.includes('exterior');
+        } else if (t === 'roof') {
+            hit = n.includes('roof') || mn.includes('roof') ||
+                  n.includes('top')  || mn.includes('top')  ||
+                  n.includes('ceil') || mn.includes('ceil');
+        } else if (t === 'windows') {
+            hit = n.includes('window') || mn.includes('window') ||
+                  n.includes('glass')  || mn.includes('glass');
+        } else if (t === 'doors') {
+            hit = n.includes('door') || mn.includes('door');
+        } else if (t === 'ground' || t === 'floor') {
+            hit = n.includes('ground') || mn.includes('ground') ||
+                  n.includes('floor')  || mn.includes('floor');
+        }
+
+        if (hit) {
+            const mat = m.material;
+            if (mat.albedoColor  !== undefined) mat.albedoColor  = c.clone();
+            if (mat.diffuseColor !== undefined) mat.diffuseColor = c.clone();
+        }
+    });
+    markDirty();
+    showHint('Color updated ✓');
+}
+
+// ── Zoom control ────────────────────────────────────────────────────────────
+function doZoom(level) {
+    const step = camera.radius * 0.35;
+    if (level === 'in')    camera.radius = Math.max(camera.lowerRadiusLimit, camera.radius - step);
+    else if (level === 'out')  camera.radius = Math.min(camera.upperRadiusLimit, camera.radius + step);
+    else if (level === 'reset') camera.radius = Math.max(currentBSize, currentBHeight * 0.7) * 2.2;
+    markDirty();
+}
+
+// ── Rotate building ─────────────────────────────────────────────────────────
+function doRotate(degrees) {
+    if (pivot) pivot.rotation.y += degrees * Math.PI / 180;
+    markDirty();
+}
+
+// ── Reset colors ────────────────────────────────────────────────────────────
+function doResetColors() {
+    scene.materials.forEach(mat => {
+        const orig = originalColors.get(mat.uniqueId);
+        if (!orig) return;
+        if (mat.albedoColor  !== undefined) mat.albedoColor  = orig.clone();
+        if (mat.diffuseColor !== undefined) mat.diffuseColor = orig.clone();
+    });
+    markDirty();
+    showHint('Colors reset ✓');
+}
+
+// ── Add objects around the building ─────────────────────────────────────────
+function doAddObject(type, count) {
+    const s = currentBSize;
+    if (type === 'tree') {
+        const spots = [
+            new BABYLON.Vector3( s*0.75, 0,  s*0.75),
+            new BABYLON.Vector3(-s*0.75, 0,  s*0.75),
+            new BABYLON.Vector3( s*0.75, 0, -s*0.75),
+            new BABYLON.Vector3(-s*0.75, 0, -s*0.75),
+        ];
+        for (let i = 0; i < Math.min(count, 4); i++) {
+            const p = spots[i];
+            const trunk = BABYLON.MeshBuilder.CreateCylinder('trunk_'+i,
+                {height: s*0.18, diameter: s*0.045}, scene);
+            trunk.position.set(p.x, s*0.09, p.z);
+            const tMat = new BABYLON.PBRMaterial('tMat'+i, scene);
+            tMat.albedoColor = new BABYLON.Color3(0.38,0.22,0.08);
+            tMat.metallic=0; tMat.roughness=0.95;
+            trunk.material = tMat;
+
+            const leaves = BABYLON.MeshBuilder.CreateSphere('leaves_'+i,
+                {diameter: s*0.28, segments: 6}, scene);
+            leaves.position.set(p.x, s*0.24, p.z);
+            const lMat = new BABYLON.PBRMaterial('lMat'+i, scene);
+            lMat.albedoColor = new BABYLON.Color3(0.13,0.55,0.17);
+            lMat.metallic=0; lMat.roughness=0.88;
+            leaves.material = lMat;
+            try { shadows.addShadowCaster(trunk); shadows.addShadowCaster(leaves); } catch(e){}
+        }
+        showHint('Trees added ✓');
+    } else if (type === 'car') {
+        const carP = new BABYLON.Vector3(s*0.85, 0, 0);
+        const body = BABYLON.MeshBuilder.CreateBox('car_body',
+            {width:s*0.28, height:s*0.09, depth:s*0.13}, scene);
+        body.position.set(carP.x, s*0.045, carP.z);
+        const bMat = new BABYLON.PBRMaterial('bMat', scene);
+        bMat.albedoColor = new BABYLON.Color3(0.8,0.1,0.1);
+        bMat.metallic=0.6; bMat.roughness=0.3;
+        body.material = bMat;
+
+        const cabin = BABYLON.MeshBuilder.CreateBox('car_cabin',
+            {width:s*0.16, height:s*0.09, depth:s*0.12}, scene);
+        cabin.position.set(carP.x, s*0.125, carP.z);
+        const cMat = new BABYLON.PBRMaterial('cMat', scene);
+        cMat.albedoColor = new BABYLON.Color3(0.55,0.78,1.0);
+        cMat.metallic=0.1; cMat.roughness=0.08; cMat.alpha=0.75;
+        cabin.material = cMat;
+        try { shadows.addShadowCaster(body); } catch(e){}
+        showHint('Car added ✓');
+    } else if (type === 'lamppost') {
+        const lP = new BABYLON.Vector3(s*0.6, 0, s*0.6);
+        const pole = BABYLON.MeshBuilder.CreateCylinder('pole',
+            {height:s*0.4, diameter:s*0.025}, scene);
+        pole.position.set(lP.x, s*0.2, lP.z);
+        const pMat = new BABYLON.PBRMaterial('pMat', scene);
+        pMat.albedoColor = new BABYLON.Color3(0.3,0.3,0.3);
+        pMat.metallic=0.8; pMat.roughness=0.2;
+        pole.material = pMat;
+        const lamp = new BABYLON.PointLight('lamp', new BABYLON.Vector3(lP.x, s*0.42, lP.z), scene);
+        lamp.diffuse = new BABYLON.Color3(1,0.9,0.6);
+        lamp.intensity = 2; lamp.range = s*2;
+        showHint('Lamp post added ✓');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  2D FLOOR PLAN  —  per-type SVG architectural drawings
+// ═══════════════════════════════════════════════════════════════════════════
+function _fpHouse(){return`<svg viewBox="0 0 420 310" xmlns="http://www.w3.org/2000/svg">
+<rect width="420" height="310" fill="#fafafa"/>
+<rect x="45" y="35" width="330" height="240" fill="white" stroke="#111" stroke-width="7"/>
+<line x1="45" y1="145" x2="375" y2="145" stroke="#111" stroke-width="4"/>
+<line x1="160" y1="35" x2="160" y2="145" stroke="#111" stroke-width="3"/>
+<line x1="270" y1="35" x2="270" y2="145" stroke="#111" stroke-width="3"/>
+<line x1="310" y1="35" x2="310" y2="145" stroke="#111" stroke-width="3"/>
+<line x1="160" y1="145" x2="160" y2="275" stroke="#111" stroke-width="3"/>
+<line x1="270" y1="145" x2="270" y2="275" stroke="#111" stroke-width="3"/>
+<line x1="270" y1="205" x2="375" y2="205" stroke="#111" stroke-width="3"/>
+<line x1="100" y1="145" x2="100" y2="125" stroke="#111" stroke-width="2"/>
+<path d="M100,125 A20,20 0 0,1 120,145" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="215" y1="145" x2="215" y2="125" stroke="#111" stroke-width="2"/>
+<path d="M215,125 A20,20 0 0,0 195,145" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="315" y1="145" x2="315" y2="125" stroke="#111" stroke-width="2"/>
+<path d="M315,125 A20,20 0 0,0 295,145" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="310" y1="100" x2="330" y2="100" stroke="#111" stroke-width="2"/>
+<path d="M330,100 A20,20 0 0,1 310,120" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="275" y1="225" x2="295" y2="225" stroke="#111" stroke-width="2"/>
+<path d="M295,225 A20,20 0 0,1 275,245" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="185" y1="275" x2="225" y2="275" stroke="#111" stroke-width="5"/>
+<path d="M225,275 A40,40 0 0,0 225,255" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="4,3"/>
+<rect x="60" y="48" width="68" height="72" rx="3" fill="none" stroke="#bbb" stroke-width="1.5"/>
+<rect x="60" y="48" width="68" height="18" rx="2" fill="#e0e0e0" stroke="#bbb" stroke-width="1"/>
+<rect x="175" y="48" width="68" height="72" rx="3" fill="none" stroke="#bbb" stroke-width="1.5"/>
+<rect x="175" y="48" width="68" height="18" rx="2" fill="#e0e0e0" stroke="#bbb" stroke-width="1"/>
+<rect x="55" y="158" width="78" height="25" rx="4" fill="none" stroke="#bbb" stroke-width="1.5"/>
+<rect x="165" y="168" width="60" height="50" rx="3" fill="none" stroke="#bbb" stroke-width="1.5"/>
+<line x1="185" y1="168" x2="185" y2="218" stroke="#bbb" stroke-width="1"/>
+<line x1="165" y1="188" x2="225" y2="188" stroke="#bbb" stroke-width="1"/>
+<rect x="280" y="150" width="88" height="14" rx="2" fill="#ececec" stroke="#bbb" stroke-width="1"/>
+<rect x="280" y="260" width="88" height="14" rx="2" fill="#ececec" stroke="#bbb" stroke-width="1"/>
+<text x="100" y="96" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Bedroom</text>
+<text x="215" y="96" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Bedroom</text>
+<text x="290" y="70" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Bath</text>
+<text x="342" y="88" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Master</text>
+<text x="342" y="102" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Bedroom</text>
+<text x="100" y="210" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Living Room</text>
+<text x="215" y="206" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Dining</text>
+<text x="320" y="175" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Kitchen</text>
+<text x="320" y="240" font-size="10" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Washroom</text>
+<line x1="45" y1="22" x2="375" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="45" y1="18" x2="45" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="375" y1="18" x2="375" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="210" y="17" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold">Width</text>
+<line x1="388" y1="35" x2="388" y2="275" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="384" y1="35" x2="392" y2="35" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="384" y1="275" x2="392" y2="275" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="400" y="160" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold" transform="rotate(90,400,160)">Depth</text>
+<text x="210" y="302" font-size="16" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" letter-spacing="3" fill="#111">FLOOR PLAN</text>
+</svg>`;}
+
+function _fpMosque(){return`<svg viewBox="0 0 350 350" xmlns="http://www.w3.org/2000/svg">
+<rect width="350" height="350" fill="#fafafa"/>
+<rect x="35" y="35" width="280" height="280" fill="white" stroke="#111" stroke-width="7"/>
+<line x1="35" y1="250" x2="315" y2="250" stroke="#111" stroke-width="4"/>
+<path d="M140,35 L140,60 A35,35 0 0,0 210,60 L210,35" fill="none" stroke="#111" stroke-width="3"/>
+<circle cx="110" cy="110" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<circle cx="175" cy="110" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<circle cx="240" cy="110" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<circle cx="110" cy="175" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<circle cx="175" cy="175" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<circle cx="240" cy="175" r="7" fill="#ddd" stroke="#111" stroke-width="2"/>
+<line x1="50" y1="120" x2="300" y2="120" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+<line x1="50" y1="145" x2="300" y2="145" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+<line x1="50" y1="170" x2="300" y2="170" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+<line x1="50" y1="195" x2="300" y2="195" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+<line x1="50" y1="220" x2="300" y2="220" stroke="#ddd" stroke-width="1" stroke-dasharray="6,4"/>
+<line x1="155" y1="315" x2="195" y2="315" stroke="#111" stroke-width="5"/>
+<path d="M195,315 A40,40 0 0,0 195,293" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="4,3"/>
+<text x="175" y="155" font-size="14" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Prayer Hall</text>
+<text x="175" y="270" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Entrance</text>
+<text x="175" y="52" font-size="10" text-anchor="middle" font-family="Arial,sans-serif" fill="#666">Mihrab</text>
+<line x1="35" y1="22" x2="315" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="35" y1="18" x2="35" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="315" y1="18" x2="315" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="175" y="16" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold">Width</text>
+<line x1="326" y1="35" x2="326" y2="315" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="322" y1="35" x2="330" y2="35" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="322" y1="315" x2="330" y2="315" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="338" y="178" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold" transform="rotate(90,338,178)">Depth</text>
+<text x="175" y="344" font-size="16" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" letter-spacing="3" fill="#111">FLOOR PLAN</text>
+</svg>`;}
+
+function _fpSchool(){return`<svg viewBox="0 0 480 280" xmlns="http://www.w3.org/2000/svg">
+<rect width="480" height="280" fill="#fafafa"/>
+<rect x="30" y="30" width="420" height="215" fill="white" stroke="#111" stroke-width="7"/>
+<line x1="30" y1="135" x2="450" y2="135" stroke="#111" stroke-width="4"/>
+<line x1="30" y1="165" x2="450" y2="165" stroke="#111" stroke-width="4"/>
+<line x1="135" y1="30" x2="135" y2="135" stroke="#111" stroke-width="3"/>
+<line x1="240" y1="30" x2="240" y2="135" stroke="#111" stroke-width="3"/>
+<line x1="345" y1="30" x2="345" y2="135" stroke="#111" stroke-width="3"/>
+<line x1="135" y1="165" x2="135" y2="245" stroke="#111" stroke-width="3"/>
+<line x1="240" y1="165" x2="240" y2="245" stroke="#111" stroke-width="3"/>
+<line x1="345" y1="165" x2="345" y2="245" stroke="#111" stroke-width="3"/>
+<line x1="82" y1="135" x2="82" y2="117" stroke="#111" stroke-width="2"/>
+<path d="M82,117 A18,18 0 0,1 100,135" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="187" y1="135" x2="187" y2="117" stroke="#111" stroke-width="2"/>
+<path d="M187,117 A18,18 0 0,1 205,135" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="292" y1="135" x2="292" y2="117" stroke="#111" stroke-width="2"/>
+<path d="M292,117 A18,18 0 0,1 310,135" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="397" y1="135" x2="397" y2="117" stroke="#111" stroke-width="2"/>
+<path d="M397,117 A18,18 0 0,1 415,135" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<text x="82"  y="87" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 1</text>
+<text x="187" y="87" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 2</text>
+<text x="292" y="87" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 3</text>
+<text x="397" y="87" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 4</text>
+<text x="82"  y="210" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 5</text>
+<text x="187" y="210" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Class 6</text>
+<text x="292" y="210" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Office</text>
+<text x="397" y="210" font-size="11" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">WC</text>
+<text x="240" y="154" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" fill="#666">Corridor</text>
+<line x1="30" y1="18" x2="450" y2="18" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="30" y1="14" x2="30" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="450" y1="14" x2="450" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="240" y="13" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold">Width</text>
+<line x1="463" y1="30" x2="463" y2="245" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="459" y1="30" x2="467" y2="30" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="459" y1="245" x2="467" y2="245" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="474" y="140" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold" transform="rotate(90,474,140)">Depth</text>
+<text x="240" y="272" font-size="16" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" letter-spacing="3" fill="#111">FLOOR PLAN</text>
+</svg>`;}
+
+function _fpHospital(){return`<svg viewBox="0 0 480 320" xmlns="http://www.w3.org/2000/svg">
+<rect width="480" height="320" fill="#fafafa"/>
+<rect x="30" y="30" width="420" height="255" fill="white" stroke="#111" stroke-width="7"/>
+<line x1="200" y1="30" x2="200" y2="285" stroke="#111" stroke-width="4"/>
+<line x1="240" y1="30" x2="240" y2="285" stroke="#111" stroke-width="4"/>
+<line x1="30" y1="130" x2="200" y2="130" stroke="#111" stroke-width="3"/>
+<line x1="30" y1="210" x2="200" y2="210" stroke="#111" stroke-width="3"/>
+<line x1="240" y1="130" x2="450" y2="130" stroke="#111" stroke-width="3"/>
+<line x1="240" y1="210" x2="450" y2="210" stroke="#111" stroke-width="3"/>
+<rect x="208" y="138" width="24" height="36" rx="3" fill="#eee" stroke="#aaa" stroke-width="1.5"/>
+<line x1="100" y1="130" x2="100" y2="112" stroke="#111" stroke-width="2"/>
+<path d="M100,112 A18,18 0 0,1 118,130" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="100" y1="210" x2="100" y2="192" stroke="#111" stroke-width="2"/>
+<path d="M100,192 A18,18 0 0,1 118,210" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="350" y1="130" x2="350" y2="112" stroke="#111" stroke-width="2"/>
+<path d="M350,112 A18,18 0 0,0 332,130" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<line x1="350" y1="210" x2="350" y2="192" stroke="#111" stroke-width="2"/>
+<path d="M350,192 A18,18 0 0,0 332,210" fill="none" stroke="#111" stroke-width="1.5" stroke-dasharray="3,2"/>
+<text x="113" y="85"  font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Ward A</text>
+<text x="113" y="175" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Ward B</text>
+<text x="113" y="252" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">ICU</text>
+<text x="345" y="85"  font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Ward C</text>
+<text x="345" y="175" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Ward D</text>
+<text x="345" y="252" font-size="12" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Pharmacy</text>
+<text x="220" y="127" font-size="9"  text-anchor="middle" font-family="Arial,sans-serif" fill="#666">Reception</text>
+<line x1="30" y1="18" x2="450" y2="18" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="30" y1="14" x2="30" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="450" y1="14" x2="450" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="240" y="13" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold">Width</text>
+<line x1="463" y1="30" x2="463" y2="285" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="459" y1="30" x2="467" y2="30" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="459" y1="285" x2="467" y2="285" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="474" y="160" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold" transform="rotate(90,474,160)">Depth</text>
+<text x="240" y="313" font-size="16" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" letter-spacing="3" fill="#111">FLOOR PLAN</text>
+</svg>`;}
+
+function _fpGeneric(){return`<svg viewBox="0 0 360 280" xmlns="http://www.w3.org/2000/svg">
+<rect width="360" height="280" fill="#fafafa"/>
+<rect x="35" y="35" width="290" height="210" fill="white" stroke="#111" stroke-width="7"/>
+<rect x="155" y="115" width="50" height="55" fill="none" stroke="#111" stroke-width="3"/>
+<line x1="155" y1="125" x2="205" y2="125" stroke="#ddd" stroke-width="1"/>
+<line x1="155" y1="135" x2="205" y2="135" stroke="#ddd" stroke-width="1"/>
+<line x1="155" y1="145" x2="205" y2="145" stroke="#ddd" stroke-width="1"/>
+<line x1="155" y1="155" x2="205" y2="155" stroke="#ddd" stroke-width="1"/>
+<line x1="165" y1="245" x2="210" y2="245" stroke="#111" stroke-width="5"/>
+<path d="M210,245 A45,45 0 0,0 210,222" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="4,3"/>
+<text x="180" y="95" font-size="13" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" fill="#222">Open Plan</text>
+<text x="180" y="146" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#666">Stair</text>
+<line x1="35" y1="22" x2="325" y2="22" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="35" y1="18" x2="35" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="325" y1="18" x2="325" y2="26" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="180" y="17" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold">Width</text>
+<line x1="338" y1="35" x2="338" y2="245" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="334" y1="35" x2="342" y2="35" stroke="#8b5cf6" stroke-width="1.5"/>
+<line x1="334" y1="245" x2="342" y2="245" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="350" y="145" font-size="9" text-anchor="middle" font-family="Arial,sans-serif" fill="#8b5cf6" font-weight="bold" transform="rotate(90,350,145)">Depth</text>
+<text x="180" y="275" font-size="16" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" letter-spacing="3" fill="#111">FLOOR PLAN</text>
+</svg>`;}
+
+function showFloorPlanOverlay() {
+    const el = document.getElementById('fp-overlay');
+    if (!el) return;
+    const t = (buildingTitle || '').toLowerCase();
+    let svg;
+    if      (t.includes('mosque') || t.includes('masjid'))       svg = _fpMosque();
+    else if (t.includes('school') || t.includes('class'))         svg = _fpSchool();
+    else if (t.includes('hospital') || t.includes('clinic'))      svg = _fpHospital();
+    else if (t.includes('house') || t.includes('villa') ||
+             t.includes('home')  || t.includes('residential'))    svg = _fpHouse();
+    else                                                           svg = _fpGeneric();
+    el.innerHTML = svg;
+    el.classList.add('show');
+    document.getElementById('renderCanvas').style.display = 'none';
+}
+
+function hideFloorPlanOverlay() {
+    const el = document.getElementById('fp-overlay');
+    if (el) { el.classList.remove('show'); el.innerHTML = ''; }
+    document.getElementById('renderCanvas').style.display = '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FLOOR PLAN MODE
+// ═══════════════════════════════════════════════════════════════════════════
+function enterFloorPlan() {
+    if (!pivot) { showHint('Building still loading, please wait…'); return; }
+    if (isFloorPlan) { exitFloorPlan(); return; }
+    if (isInterior)  { exitInterior();  return; }
+    isIn360 = false;
+    _stop360Spin();
+    scene.unfreezeActiveMeshes();
+    markDirty();
+    isFloorPlan = true;
+
+    // Reset floor state for a fresh entry
+    currentFloor    = 0;
+    allZonesByFloor = {};
+    allFurByFloor   = {};
+    furnitureList   = [];
+
+    savedCam = { alpha:camera.alpha, beta:camera.beta, radius:camera.radius,
+                 target:camera.target.clone(), fov:camera.fov };
+
+    try {
+        if (bgPhotoLayer) bgPhotoLayer.isEnabled = false;
+        document.getElementById('poly-svg').style.opacity = '0';
+
+        scene.clearColor = new BABYLON.Color4(0.07, 0.10, 0.07, 1);
+
+        // Slice building: hide everything above floor 0's ceiling
+        saveAndApplyFloorVisibility();
+
+        camera.viewport = new BABYLON.Viewport(0, 0, 1, 1);
+
+        // Top-down camera — zoom/pan only, no tilt
+        camera.lowerBetaLimit   = 0;
+        camera.upperBetaLimit   = 0.15;
+        camera.lowerRadiusLimit = currentBSize * 0.8;
+        camera.upperRadiusLimit = currentBSize * 5;
+        camera.fov    = 0.9;
+        camera.beta   = 0.01;
+        camera.radius = currentBSize * 2.6;
+        camera.target = new BABYLON.Vector3(_landX, currentFloor * floorH + floorH * 0.5, _landZ);
+        camera.alpha  = -Math.PI / 2;
+        camera.attachControl(canvas, true);
+
+        // Invisible pick-floor at ground level for pointer ray-casts
+        if (zonePickFloor) zonePickFloor.dispose();
+        zonePickFloor = BABYLON.MeshBuilder.CreateGround('zonePickFloor',
+            { width: currentBSize * 3, height: currentBSize * 3 }, scene);
+        zonePickFloor.isPickable = true;
+        zonePickFloor.isVisible  = false;
+        zonePickFloor.position.y = buildingFloorOffset + currentFloor * floorH + 0.01;
+
+        // Auto-create room grid for floor 0 immediately
+        createZoneGrid();
+
+        // Pre-load Augh.glb so room assignment auto-places furniture without waiting
+        loadFurnitureGlb(() => {});
+
+        document.getElementById('bottom-bar').style.display = 'none';
+        document.getElementById('fp-bar').style.display     = 'flex';
+        updateFloorUI();
+        showHint('Floor plan · tap a zone to assign a room type');
+    } catch(e) {
+        isFloorPlan = false;
+        showHint('Floor plan error: ' + e.message);
+        console.error('enterFloorPlan error', e);
+    }
+}
+
+function exitFloorPlan() {
+    if (!isFloorPlan) return;
+    isFloorPlan = false;
+    isPlacingZone = false;
+    markDirty();
+
+    saveCurrentFloorZones();
+    saveCurrentFloorFurniture();
+
+    // Restore full building visibility before returning to 360 view
+    restoreAllMeshVisibility();
+
+    // Show ALL placed furniture in the 360 view
+    Object.values(allFurByFloor).forEach(list =>
+        list.forEach(p => { try { p.getChildMeshes(false).forEach(m => m.isVisible = true); } catch(e) {} }));
+
+    if (zonePickFloor) { zonePickFloor.dispose(); zonePickFloor = null; }
+    destroyZoneGrid();
+
+    // Reset camera limits — start360() will configure them properly
+    camera.lowerBetaLimit   = 0.05;
+    camera.upperBetaLimit   = Math.PI / 2;
+    camera.lowerRadiusLimit = null;
+    camera.upperRadiusLimit = null;
+
+    document.getElementById('fp-bar').style.display     = 'none';
+    document.getElementById('bottom-bar').style.display = 'flex';
+
+    // Jump directly into 360 interactive mode — no static-view detour
+    start360();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INTERIOR DESIGN MODE
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+//  ROOM ZONE SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════
+const _roomColors = {
+    living:   new BABYLON.Color3(0.90, 0.55, 0.15),
+    bedroom:  new BABYLON.Color3(0.15, 0.35, 0.82),
+    bathroom: new BABYLON.Color3(0.15, 0.70, 0.82),
+    kitchen:  new BABYLON.Color3(0.15, 0.72, 0.28),
+    office:   new BABYLON.Color3(0.55, 0.20, 0.72),
+};
+
+// rx/rz: fraction of zone half-size from zone center (auto-placed on room assign)
+const _roomPresets = {
+    living:   [{ type:'sofa1',  rx:  0.00, rz:  0.15 },
+               { type:'chair1', rx:  0.28, rz: -0.05 },
+               { type:'tv',     rx:  0.00, rz: -0.28 },
+               { type:'lamp',   rx:  0.30, rz:  0.28 }],
+    bedroom:  [{ type:'bed',    rx:  0.00, rz:  0.22 },
+               { type:'lamp',   rx:  0.30, rz:  0.28 },
+               { type:'desk',   rx: -0.28, rz:  0.25 }],
+    bathroom: [{ type:'toilet', rx: -0.22, rz:  0.25 },
+               { type:'sink',   rx:  0.22, rz:  0.25 },
+               { type:'bathtub',rx:  0.00, rz: -0.15 }],
+    kitchen:  [{ type:'fridge',  rx:  0.28, rz:  0.22 },
+               { type:'cabinet', rx: -0.10, rz:  0.28 },
+               { type:'sink',    rx: -0.28, rz:  0.22 }],
+    office:   [{ type:'desk',   rx:  0.00, rz:  0.20 },
+               { type:'chair1', rx:  0.00, rz:  0.00 },
+               { type:'shelf',  rx:  0.28, rz:  0.28 },
+               { type:'lamp',   rx: -0.28, rz:  0.28 }],
+};
+
+// Which furniture buttons are visible per room type
+const _roomFurItems = {
+    living:   ['sofa1','sofa2','chair1','chair2','tv','lamp'],
+    bedroom:  ['bed','lamp','desk','chair1','cabinet','wardrobe'],
+    bathroom: ['toilet','sink','bathtub'],
+    kitchen:  ['fridge','sink','cabinet'],
+    office:   ['desk','chair1','chair2','shelf','lamp','cabinet'],
+};
+
+const _roomLabels = {
+    living:'Living Room', bedroom:'Bedroom', bathroom:'Bathroom',
+    kitchen:'Kitchen',    office:'Office',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PER-FLOOR MESH VISIBILITY — save/restore building mesh states for slicing
+// ─────────────────────────────────────────────────────────────────────────────
+function saveAndApplyFloorVisibility() {
+    _meshStates.clear();
+    _matStates.clear();
+    const floorBottom = currentFloor * floorH;
+    const floorCeil   = floorBottom + floorH;
+
+    scene.meshes.forEach(m => {
+        // Skip non-building meshes
+        if (!m.material || !m.getBoundingInfo) return;
+        const n = m.name || '';
+        if (n === 'zonePickFloor' || n === 'gnd' || n === 'interiorFloor' ||
+            n.startsWith('ztile') || n.startsWith('furpiv') || n.startsWith('selRing') ||
+            (m.metadata && (m.metadata.isFurPivot || m.metadata.isSourceFur))) return;
+
+        // Save mesh visibility (per mesh — each has its own isVisible flag)
+        _meshStates.set(m, { isVisible: m.isVisible });
+
+        // Save material state ONCE per material object (shared materials were the
+        // bug: second mesh would save the already-modified alpha, so restore was wrong)
+        if (!_matStates.has(m.material.uniqueId)) {
+            _matStates.set(m.material.uniqueId, {
+                mat:       m.material,
+                alpha:     m.material.alpha,
+                transMode: m.material.transparencyMode
+            });
+        }
+
+        try {
+            m.computeWorldMatrix(true);
+            const bb      = m.getBoundingInfo().boundingBox;
+            const meshBot = bb.minimumWorld.y;
+
+            if (meshBot > floorCeil + 0.35) {
+                // Completely above this floor's ceiling → hide
+                m.isVisible = false;
+            } else if (meshBot > floorCeil - 1.0 && meshBot <= floorCeil + 0.35) {
+                // Ceiling band of current floor → make transparent so we see inside
+                m.isVisible = true;
+                if (m.material.alpha > 0.15) {
+                    m.material.alpha = 0.07;
+                    if (m.material.transparencyMode !== undefined)
+                        m.material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+                }
+            }
+        } catch(e) {}
+    });
+}
+
+function restoreAllMeshVisibility() {
+    // Restore mesh visibility per mesh
+    _meshStates.forEach((st, m) => {
+        try { m.isVisible = st.isVisible; } catch(e) {}
+    });
+    // Restore material alpha/transparency once per material (avoids shared-material corruption)
+    _matStates.forEach(st => {
+        try {
+            if (st.mat) {
+                st.mat.alpha = st.alpha;
+                if (st.mat.transparencyMode !== undefined)
+                    st.mat.transparencyMode = st.transMode;
+            }
+        } catch(e) {}
+    });
+    _meshStates.clear();
+    _matStates.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PER-FLOOR ZONE GRID MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+function saveCurrentFloorZones() {
+    if (zoneGrid.length) {
+        zoneGrid.forEach(t => { try { t.isVisible = false; } catch(e) {} });
+        allZonesByFloor[currentFloor] = zoneGrid.slice();
+    }
+    zoneGrid = [];
+}
+
+function loadFloorZones(floorIdx) {
+    const saved = allZonesByFloor[floorIdx];
+    const y = buildingFloorOffset + floorIdx * floorH + 0.04;
+    if (saved && saved.length) {
+        zoneGrid = saved;
+        zoneGrid.forEach(t => { t.isVisible = true; t.position.y = y; });
+    } else {
+        createZoneGrid();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PER-FLOOR FURNITURE MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+function saveCurrentFloorFurniture() {
+    if (furnitureList.length) {
+        furnitureList.forEach(p => {
+            try { p.getChildMeshes(false).forEach(m => m.isVisible = false); } catch(e) {}
+        });
+        allFurByFloor[currentFloor] = furnitureList.slice();
+    }
+    furnitureList = [];
+}
+
+function loadFloorFurniture(floorIdx) {
+    const saved = allFurByFloor[floorIdx];
+    if (saved && saved.length) {
+        furnitureList = saved;
+        furnitureList.forEach(p => {
+            try { p.getChildMeshes(false).forEach(m => m.isVisible = true); } catch(e) {}
+        });
+    } else {
+        furnitureList = [];
+    }
+}
+
+// Show ALL floors' furniture (used when entering interior view)
+function showAllFloorFurniture() {
+    Object.values(allFurByFloor).forEach(list =>
+        list.forEach(p => { try { p.getChildMeshes(false).forEach(m => m.isVisible = true); } catch(e) {} }));
+    furnitureList.forEach(p => { try { p.getChildMeshes(false).forEach(m => m.isVisible = true); } catch(e) {} });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FLOOR NAVIGATION
+// ─────────────────────────────────────────────────────────────────────────────
+function updateFloorUI() {
+    const lbl    = document.getElementById('floor-label');
+    const btnUp  = document.getElementById('btn-floor-up');
+    const btnDn  = document.getElementById('btn-floor-down');
+    if (lbl)   lbl.textContent = 'Floor ' + (currentFloor + 1) + ' / ' + numFloors;
+    if (btnDn) btnDn.disabled  = (currentFloor === 0);
+    if (btnUp) btnUp.disabled  = (currentFloor >= numFloors - 1);
+}
+
+function changeFloor(delta) {
+    if (!isFloorPlan) return;
+    const next = currentFloor + delta;
+    if (next < 0 || next >= numFloors) return;
+
+    deselectFurniture();
+    hideZonePopup();
+    saveCurrentFloorZones();
+    saveCurrentFloorFurniture();
+
+    currentFloor = next;
+
+    // Re-slice building for new floor
+    restoreAllMeshVisibility();
+    saveAndApplyFloorVisibility();
+
+    // Move zone pick floor to this floor's level
+    if (zonePickFloor) zonePickFloor.position.y = buildingFloorOffset + currentFloor * floorH + 0.01;
+
+    // Load (or create) zones and furniture for new floor
+    loadFloorZones(currentFloor);
+    loadFloorFurniture(currentFloor);
+
+    // Pan camera to new floor height
+    camera.target = new BABYLON.Vector3(0, currentFloor * floorH + floorH * 0.5, 0);
+
+    updateFloorUI();
+    markDirty();
+    showHint('Floor ' + (currentFloor + 1) + ' of ' + numFloors + ' · tap a zone to assign a room');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PRIMITIVE FURNITURE FALLBACK
+//  Called by _autoPlace / addFurniture when a mesh key isn't in Augh.glb
+// ─────────────────────────────────────────────────────────────────────────────
+function _makePrimitiveFurniture(type, wx, wy, wz) {
+    const s = _primSizes[type] || { w:0.8, h:0.9, d:0.8, r:0.65, g:0.55, b:0.45 };
+
+    const furPivot = new BABYLON.TransformNode('furpiv_' + Date.now(), scene);
+    furPivot.metadata = { isFurPivot: true };
+
+    const box = BABYLON.MeshBuilder.CreateBox(type + '_prim_' + Date.now(),
+        { width: s.w, height: s.h, depth: s.d }, scene);
+    const mat = new BABYLON.PBRMaterial(type + '_pmat_' + Date.now(), scene);
+    mat.albedoColor    = new BABYLON.Color3(s.r, s.g, s.b);
+    mat.metallic       = 0.05;
+    mat.roughness      = 0.80;
+    mat.backFaceCulling = false;
+    box.material   = mat;
+    box.position.y = s.h / 2;   // sit base on floor
+    box.parent     = furPivot;
+    box.isPickable = true;
+    box.receiveShadows = true;
+    box.metadata   = { furPivot };
+    try { shadows.addShadowCaster(box, true); } catch(e) {}
+
+    furPivot.position.set(wx, wy, wz);
+    return furPivot;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ZONE GRID CREATION
+// ─────────────────────────────────────────────────────────────────────────────
+function createZoneGrid() {
+    destroyZoneGrid();
+    const s  = currentBSize;
+    // Place tiles ABOVE the floor slab surface (buildingFloorOffset = top of slab)
+    const y  = buildingFloorOffset + currentFloor * floorH + 0.04;
+    const n  = s > 12 ? 3 : 2;
+    const cw = s / n, cd = s / n;
+    for (let ix = 0; ix < n; ix++) {
+        for (let iz = 0; iz < n; iz++) {
+            const cx = -s/2 + cw*(ix+0.5);
+            const cz = -s/2 + cd*(iz+0.5);
+            const tile = BABYLON.MeshBuilder.CreateGround(
+                'ztile_'+ix+'_'+iz, { width: cw*0.90, height: cd*0.90 }, scene);
+            tile.position.set(cx, y, cz);
+            tile.isPickable = true;
+            const mat = new BABYLON.PBRMaterial('zmat_'+ix+'_'+iz+'_'+currentFloor, scene);
+            mat.albedoColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+            mat.metallic = 0; mat.roughness = 1;
+            mat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            mat.alpha = 0.30;
+            tile.material = mat;
+            tile.metadata = { isZoneTile:true, roomType:null, cx, cz, w:cw, d:cd };
+            zoneGrid.push(tile);
+        }
+    }
+}
+
+function destroyZoneGrid() {
+    zoneGrid.forEach(t => { try { t.dispose(); } catch(e) {} });
+    zoneGrid = [];
+    hideZonePopup();
+}
+
+function showZonePopup(tile) {
+    activeZoneMesh = tile;
+    document.getElementById('zone-popup').classList.add('show');
+}
+
+function hideZonePopup() {
+    document.getElementById('zone-popup').classList.remove('show');
+    activeZoneMesh = null;
+}
+
+function assignRoom(roomType) {
+    if (!activeZoneMesh) return;
+    const tile = activeZoneMesh;
+    hideZonePopup();
+
+    tile.metadata.roomType = roomType;
+    const mat = tile.material;
+    if (!roomType || !_roomColors[roomType]) {
+        mat.albedoColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+        mat.alpha = 0.30;
+        // Clear room; reset furniture bar to show all
+        if (isInterior)
+            document.querySelectorAll('#interior-bar .fbtn').forEach(b => b.style.display = '');
+        markDirty();
+        return;
+    }
+
+    mat.albedoColor = _roomColors[roomType];
+    mat.alpha = 0.45;
+    markDirty();  // immediately repaint so color shows without waiting for furniture load
+
+    // Filter furniture bar to room-relevant items (only visible in interior mode)
+    if (isInterior) {
+        const allowed = _roomFurItems[roomType] || [];
+        document.querySelectorAll('#interior-bar .fbtn').forEach(btn => {
+            // Match class fur-<type> added in HTML
+            const furClass = Array.from(btn.classList).find(c => c.startsWith('fur-'));
+            if (furClass) {
+                const furType = furClass.replace('fur-', '');
+                btn.style.display = allowed.includes(furType) ? '' : 'none';
+            }
+        });
+        showHint((_roomLabels[roomType] || roomType) + ' · tap a piece to add');
+    } else {
+        showHint((_roomLabels[roomType] || roomType) + ' assigned · enter Interior to add/adjust furniture');
+    }
+
+    // Auto-place default furniture for this room type.
+    // If Augh.glb isn't loaded yet, wait for it then place.
+    const doPlace = () => {
+        const { cx, cz, w, d } = tile.metadata;
+        (_roomPresets[roomType] || []).forEach(p => _autoPlace(p.type, cx + p.rx*w, cz + p.rz*d));
+        markDirty();
+    };
+    if (furGlbLoaded) {
+        doPlace();
+    } else {
+        loadFurnitureGlb(doPlace);
+    }
+}
+
+function _autoPlace(type, wx, wz) {
+    const wy  = buildingFloorOffset + currentFloor * floorH;   // floor Y for current floor
+    const pat = (_furMap[type] || type).toLowerCase();
+    const matches = furSources.filter(m => m.name.toLowerCase().includes(pat));
+
+    if (!matches.length) {
+        // Primitive fallback — furniture GLB mesh not found in Augh.glb
+        const piv = _makePrimitiveFurniture(type, wx, wy, wz);
+        furnitureList.push(piv);
+        return;
+    }
+
+    let mn = new BABYLON.Vector3(1e9, 1e9, 1e9);
+    let mx = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+    matches.forEach(m => {
+        m.computeWorldMatrix(true);  // force fresh world-space bounding box
+        const bb = m.getBoundingInfo().boundingBox;
+        mn = BABYLON.Vector3.Minimize(mn, bb.minimumWorld);
+        mx = BABYLON.Vector3.Maximize(mx, bb.maximumWorld);
+    });
+    const srcCx = (mn.x+mx.x)/2, srcCy = mn.y, srcCz = (mn.z+mx.z)/2;
+
+    const furPivot = new BABYLON.TransformNode('furpiv_'+Date.now(), scene);
+    furPivot.metadata = { isFurPivot: true };
+
+    matches.forEach(m => {
+        const cl = m.clone(m.name+'_cl'+Date.now(), null);
+        if (!cl) return;
+        const wp = m.getAbsolutePosition();
+        cl.position.set(wp.x-srcCx, wp.y-srcCy, wp.z-srcCz);
+        if (m.rotationQuaternion) cl.rotationQuaternion = m.rotationQuaternion.clone();
+        else cl.rotation.copyFrom(m.rotation);
+        cl.isVisible = true; cl.isPickable = true;
+        cl.parent = furPivot;
+        cl.metadata = { ...(cl.metadata||{}), furPivot };
+        cl.receiveShadows = true;
+        try { shadows.addShadowCaster(cl, true); } catch(e) {}
+    });
+    furPivot.getChildMeshes(false).forEach(cm => {
+        cm.metadata = { ...(cm.metadata||{}), furPivot };
+        cm.isPickable = true;
+    });
+
+    furPivot.position.set(wx, wy, wz);
+    // Y-correction: snap base exactly to floor level (both upward and downward)
+    furPivot.computeWorldMatrix(true);
+    furPivot.getChildMeshes(false).forEach(cm => cm.computeWorldMatrix(true));
+    let _minYb = Infinity;
+    furPivot.getChildMeshes(false).forEach(cm => {
+        try { const b = cm.getBoundingInfo().boundingBox.minimumWorld.y; if (b < _minYb) _minYb = b; } catch(_) {}
+    });
+    if (_minYb !== Infinity && Math.abs(_minYb - wy) > 0.05)
+        furPivot.position.y += (wy - _minYb);
+    furnitureList.push(furPivot);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ZONE PLACEMENT (floor plan mode)
+// ─────────────────────────────────────────────────────────────────────────────
+function startZonePlacement() {
+    if (!isFloorPlan) return;
+    isPlacingZone = !isPlacingZone;
+    const btn = document.getElementById('btn-add-zone');
+    if (isPlacingZone) {
+        if (btn) btn.style.background = 'rgba(76,175,80,0.35)';
+        showHint('Tap anywhere on the floor to place a room zone');
+    } else {
+        if (btn) btn.style.background = '';
+    }
+}
+
+function placeZoneAt(wx, wz) {
+    isPlacingZone = false;
+    const btn = document.getElementById('btn-add-zone');
+    if (btn) btn.style.background = '';
+
+    const zs = Math.max(2.5, currentBSize / 3);
+    const tile = BABYLON.MeshBuilder.CreateGround('ztile_' + Date.now(),
+        { width: zs, height: zs }, scene);
+    tile.position.set(wx, 0.04, wz);
+    tile.isPickable = true;
+    const mat = new BABYLON.PBRMaterial('zmat_' + Date.now(), scene);
+    mat.albedoColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+    mat.metallic = 0; mat.roughness = 1;
+    mat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    mat.alpha = 0.45;
+    tile.material = mat;
+    tile.metadata = { isZoneTile:true, roomType:null, cx:wx, cz:wz, w:zs, d:zs };
+    zoneGrid.push(tile);
+    showZonePopup(tile);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FLOOR PLAN ↔ INTERIOR TRANSITIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function interiorExit() {
+    if (interiorFromFloorPlan) returnToFloorPlan();
+    else exitInterior();
+}
+
+function enterInteriorFromFloorPlan() {
+    if (!isFloorPlan || isInterior) return;
+    isFloorPlan = false;
+    isInterior  = true;
+    interiorFromFloorPlan = true;
+    isPlacingZone = false;
+
+    savedCamFloorPlan = { alpha:camera.alpha, beta:camera.beta, radius:camera.radius,
+                          target:camera.target.clone(), fov:camera.fov };
+
+    // Restore all building mesh visibility before entering eye-level view
+    restoreAllMeshVisibility();
+
+    if (zonePickFloor) { zonePickFloor.dispose(); zonePickFloor = null; }
+
+    // Hide current floor's zone tiles (they stay in scene, just invisible)
+    zoneGrid.forEach(t => { try { t.isVisible = false; } catch(e) {} });
+
+    // Show furniture for ALL floors so user can see everything from inside
+    showAllFloorFurniture();
+
+    if (bgPhotoLayer) bgPhotoLayer.isEnabled = false;
+    camera.viewport = new BABYLON.Viewport(0, 0, 1, 1);
+
+    // Eye-level camera positioned at the current floor
+    const camTargetY = currentFloor * floorH + floorH * 0.42;
+    camera.lowerBetaLimit   = 0.05;
+    camera.upperBetaLimit   = Math.PI / 2;
+    camera.lowerRadiusLimit = 0.3;
+    camera.upperRadiusLimit = currentBSize * 0.85;
+    camera.fov    = 1.15;
+    camera.radius = currentBSize * 0.32;
+    camera.beta   = Math.PI * 0.42;
+    camera.target = new BABYLON.Vector3(0, camTargetY, 0);
+    camera.attachControl(canvas, true);
+
+    scene.clearColor = new BABYLON.Color4(0.80, 0.77, 0.70, 1);
+
+    // Ceiling light at the top of the current floor
+    const lightY = currentFloor * floorH + floorH * 0.90;
+    interiorLight = new BABYLON.PointLight('intCeil', new BABYLON.Vector3(0, lightY, 0), scene);
+    interiorLight.diffuse   = new BABYLON.Color3(1, 0.92, 0.76);
+    interiorLight.intensity = 4.5;
+    interiorLight.range     = currentBSize * 4;
+
+    // Drag-floor at current floor's surface
+    interiorFloor = BABYLON.MeshBuilder.CreateGround('interiorFloor',
+        { width: currentBSize * 4, height: currentBSize * 4 }, scene);
+    interiorFloor.isPickable = true;
+    interiorFloor.isVisible  = false;
+    interiorFloor.position.y = buildingFloorOffset + currentFloor * floorH + 0.02;
+
+    try { hlLayer = new BABYLON.HighlightLayer('hl', scene, { mainTextureRatio: 0.5 }); }
+    catch(e) { hlLayer = null; }
+
+    document.getElementById('fp-bar').style.display = 'none';
+    const exitBtn = document.getElementById('btn-interior-exit');
+    if (exitBtn) exitBtn.textContent = '← Floor Plan';
+
+    // Show only this floor's room-relevant furniture buttons (or all if no zone selected)
+    loadFurnitureGlb(() => {
+        if (!isInterior) return;
+        document.querySelectorAll('#interior-bar .fbtn').forEach(b => b.style.display = '');
+        document.getElementById('interior-bar').style.display = 'flex';
+        showHint('Drag furniture · go back to floor plan to add more rooms');
+    });
+}
+
+function returnToFloorPlan() {
+    if (!isInterior || !interiorFromFloorPlan) return;
+    isInterior = false;
+    isFloorPlan = true;
+    interiorFromFloorPlan = false;
+    markDirty();
+
+    deselectFurniture();
+    if (hlLayer)       { hlLayer.dispose();      hlLayer = null; }
+    if (interiorFloor) { interiorFloor.dispose(); interiorFloor = null; }
+    if (interiorLight) { interiorLight.dispose(); interiorLight = null; }
+
+    // Re-hide all other floors' furniture, show only current floor's
+    Object.entries(allFurByFloor).forEach(([fi, list]) => {
+        if (parseInt(fi) !== currentFloor)
+            list.forEach(p => { try { p.getChildMeshes(false).forEach(m => m.isVisible = false); } catch(e) {} });
+    });
+    // Restore current floor furnitureList
+    furnitureList = allFurByFloor[currentFloor] || [];
+    furnitureList.forEach(p => { try { p.getChildMeshes(false).forEach(m => m.isVisible = true); } catch(e) {} });
+
+    // Re-apply floor slicing
+    restoreAllMeshVisibility();
+    saveAndApplyFloorVisibility();
+
+    // Re-create zone pick floor and restore zone grid for current floor
+    if (zonePickFloor) zonePickFloor.dispose();
+    zonePickFloor = BABYLON.MeshBuilder.CreateGround('zonePickFloor',
+        { width: currentBSize * 3, height: currentBSize * 3 }, scene);
+    zonePickFloor.isPickable = true;
+    zonePickFloor.isVisible  = false;
+    zonePickFloor.position.y = buildingFloorOffset + currentFloor * floorH + 0.01;
+
+    loadFloorZones(currentFloor);
+
+    scene.clearColor = new BABYLON.Color4(0.07, 0.10, 0.07, 1);
+
+    // Full-screen viewport for floor plan (initial load used land-clipped sub-region)
+    camera.viewport = new BABYLON.Viewport(0, 0, 1, 1);
+
+    if (savedCamFloorPlan) {
+        camera.fov = savedCamFloorPlan.fov; camera.alpha = savedCamFloorPlan.alpha;
+        camera.beta = savedCamFloorPlan.beta; camera.radius = savedCamFloorPlan.radius;
+        camera.target = savedCamFloorPlan.target;
+    }
+    camera.lowerBetaLimit   = 0;
+    camera.upperBetaLimit   = 0.15;
+    camera.lowerRadiusLimit = currentBSize * 0.8;
+    camera.upperRadiusLimit = currentBSize * 5;
+
+    const exitBtn = document.getElementById('btn-interior-exit');
+    if (exitBtn) exitBtn.textContent = '← Exit';
+
+    document.getElementById('interior-bar').style.display = 'none';
+    document.getElementById('fp-bar').style.display       = 'flex';
+    updateFloorUI();
+    showHint('Floor plan · tap a zone to change rooms · navigate floors with ↑↓');
+}
+
+function enterInterior() {
+    if (!pivot) { showHint('Building still loading, please wait…'); return; }
+    if (isInterior)  { exitInterior();  return; }
+    if (isFloorPlan) { exitFloorPlan(); return; }
+    isIn360 = false;   // allow entry even after 360° mode
+    _stop360Spin();
+    scene.unfreezeActiveMeshes();
+    markDirty();
+    isInterior = true;
+    interiorFromFloorPlan = false;
+
+    savedCam = { alpha:camera.alpha, beta:camera.beta, radius:camera.radius,
+                 target:camera.target.clone(), fov:camera.fov };
+
+    try {
+    if (bgPhotoLayer) bgPhotoLayer.isEnabled = false;
+    document.getElementById('poly-svg').style.opacity = '0';
+
+    camera.viewport = new BABYLON.Viewport(0, 0, 1, 1);
+
+    // Warm interior daylight background
+    scene.clearColor = new BABYLON.Color4(0.80, 0.77, 0.70, 1);
+
+    // Camera inside building at eye level
+    camera.lowerRadiusLimit = 0.4;
+    camera.upperRadiusLimit = currentBSize * 0.85;
+    camera.fov    = 1.15;
+    camera.radius = currentBSize * 0.32;
+    camera.beta   = Math.PI * 0.42;
+    camera.target = new BABYLON.Vector3(0, currentBHeight * 0.38, 0);
+    camera.attachControl(canvas, true);
+
+    // Warm ceiling light for interior feel
+    interiorLight = new BABYLON.PointLight('intCeil',
+        new BABYLON.Vector3(0, currentBHeight * 0.88, 0), scene);
+    interiorLight.diffuse    = new BABYLON.Color3(1, 0.92, 0.76);
+    interiorLight.intensity  = 4.5;
+    interiorLight.range      = currentBSize * 4;
+
+    // Invisible floor plane — furniture drags onto this (at current floor level)
+    interiorFloor = BABYLON.MeshBuilder.CreateGround('interiorFloor',
+        { width: currentBSize * 4, height: currentBSize * 4 }, scene);
+    interiorFloor.isPickable = true;
+    interiorFloor.isVisible  = false;
+    interiorFloor.position.y = buildingFloorOffset + currentFloor * floorH + 0.02;
+
+    // Highlight layer for selection glow
+    try {
+        hlLayer = new BABYLON.HighlightLayer('hl', scene, { mainTextureRatio: 0.5 });
+    } catch(e) { hlLayer = null; }
+
+    document.getElementById('bottom-bar').style.display = 'none';
+    showHint('Loading furniture pack…');
+    loadFurnitureGlb(() => {
+        if (!isInterior) return;
+        document.querySelectorAll('#interior-bar .fbtn').forEach(b => b.style.display = '');
+        document.getElementById('interior-bar').style.display = 'flex';
+        showHint('Tap a piece to add · drag to move · ↻ rotate');
+    });
+    } catch(e) {
+        isInterior = false;
+        showHint('Interior error: ' + e.message);
+        console.error('enterInterior error', e);
+    }
+}
+
+function exitInterior() {
+    if (!isInterior) return;
+    isInterior = false;
+    markDirty();
+
+    destroyZoneGrid();
+    deselectFurniture();
+    document.querySelectorAll('#interior-bar .fbtn').forEach(b => b.style.display = '');
+
+    if (hlLayer)       { hlLayer.dispose();       hlLayer = null; }
+    if (interiorFloor) { interiorFloor.dispose();  interiorFloor = null; }
+    if (interiorLight) { interiorLight.dispose();  interiorLight = null; }
+
+    camera.lowerRadiusLimit = null;
+    camera.detachControl();
+
+    document.getElementById('interior-bar').style.display = 'none';
+    document.getElementById('bottom-bar').style.display   = 'flex';
+
+    // Jump directly into 360 interactive mode — no static-view detour
+    start360();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FURNITURE GLB LOADER  — loads Augh.glb from the server's interior pack
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Map type keys → partial mesh name to search inside Augh.glb.
+// If the name isn't found in Augh.glb, a primitive box is used as fallback.
+const _furMap = {
+    sofa1:    'couch01',
+    sofa2:    'couch02',
+    chair1:   'chair01',
+    chair2:   'chair03',
+    desk:     'desk01',
+    shelf:    'shelf01',
+    cabinet:  'cabinetdrawer01',
+    lamp:     'lamp_stool',
+    fridge:   'refrigerator',
+    sink:     'sinkkitchen',
+    // items below fall back to primitives if not in Augh.glb
+    bed:      'bed',
+    toilet:   'toilet',
+    bathtub:  'bathtub',
+    wardrobe: 'wardrobe',
+    tv:       'television',
+};
+
+// Primitive fallback dimensions + colors when mesh isn't in Augh.glb
+const _primSizes = {
+    bed:      { w:1.65, h:0.55, d:2.10, r:0.60, g:0.50, b:0.88 },
+    toilet:   { w:0.45, h:0.42, d:0.72, r:0.88, g:0.88, b:0.88 },
+    bathtub:  { w:0.80, h:0.45, d:1.65, r:0.80, g:0.88, b:0.95 },
+    wardrobe: { w:1.20, h:2.00, d:0.55, r:0.60, g:0.48, b:0.38 },
+    tv:       { w:1.40, h:0.80, d:0.08, r:0.14, g:0.14, b:0.14 },
+    sofa1:    { w:2.00, h:0.85, d:0.85, r:0.35, g:0.50, b:0.75 },
+    sofa2:    { w:1.50, h:0.85, d:0.85, r:0.40, g:0.55, b:0.78 },
+    chair1:   { w:0.65, h:0.90, d:0.65, r:0.30, g:0.45, b:0.72 },
+    chair2:   { w:0.65, h:0.90, d:0.65, r:0.45, g:0.60, b:0.78 },
+    desk:     { w:1.40, h:0.75, d:0.70, r:0.58, g:0.45, b:0.32 },
+    shelf:    { w:0.90, h:1.80, d:0.35, r:0.55, g:0.42, b:0.30 },
+    cabinet:  { w:0.90, h:1.10, d:0.45, r:0.55, g:0.42, b:0.30 },
+    lamp:     { w:0.22, h:1.50, d:0.22, r:0.95, g:0.90, b:0.70 },
+    fridge:   { w:0.70, h:1.80, d:0.70, r:0.88, g:0.88, b:0.90 },
+    sink:     { w:0.60, h:0.85, d:0.50, r:0.88, g:0.88, b:0.90 },
+};
+
+let _furGlbCallbacks = [];   // queue callbacks while loading
+function loadFurnitureGlb(onDone) {
+    if (furGlbLoaded)  { if (onDone) onDone(); return; }
+    if (onDone) _furGlbCallbacks.push(onDone);
+    if (furGlbLoading) return;   // already in progress — callback is queued
+    furGlbLoading = true;
+
+    // Textures are at ../textures/ relative to Augh.glb, which resolves correctly
+    // because rootUrl = ".../models/interior/source/" and textures = ".../models/interior/textures/"
+    const rootUrl = serverBase + '/models/interior/source/';
+    BABYLON.SceneLoader.ImportMesh('', rootUrl, 'Augh.glb', scene,
+        (meshes) => {
+            furSources = [];
+            meshes.forEach(m => {
+                if (!m.name || m.name === '__root__') return;
+                m.computeWorldMatrix(true);
+                m.isVisible  = false;
+                m.isPickable = false;
+                m.metadata   = { ...(m.metadata || {}), isSourceFur: true };
+                furSources.push(m);
+            });
+            furGlbLoaded  = true;
+            furGlbLoading = false;
+            console.log('Furniture pack loaded — meshes:', furSources.map(m => m.name));
+            const cbs = _furGlbCallbacks.splice(0);
+            cbs.forEach(cb => { try { cb(); } catch(e) {} });
+        },
+        null,
+        (_sc, msg) => {
+            furGlbLoading = false;
+            showHint('⚠ Furniture pack not found — primitives used as fallback');
+            console.error('Augh.glb load error:', msg);
+            // Fire callbacks anyway — primitive fallback will handle missing meshes
+            const cbs = _furGlbCallbacks.splice(0);
+            cbs.forEach(cb => { try { cb(); } catch(e) {} });
+        },
+        '.glb'
+    );
+}
+
+function addFurniture(type) {
+    if (!isInterior) return;
+    const floorY = buildingFloorOffset + currentFloor * floorH;
+
+    const pat = (_furMap[type] || type).toLowerCase();
+    const matches = furGlbLoaded
+        ? furSources.filter(m => m.name.toLowerCase().includes(pat))
+        : [];
+
+    if (!matches.length) {
+        // Primitive fallback — either GLB not loaded or mesh not found
+        const piv = _makePrimitiveFurniture(type, 0, floorY, 0);
+        furnitureList.push(piv);
+        selectFurniture(piv);
+        showHint('Drag on the floor · ↻ Rotate · tap floor to deselect');
+        markDirty();
+        return;
+    }
+
+    // World-space bounding box of this furniture group
+    let mn = new BABYLON.Vector3( 1e9, 1e9, 1e9);
+    let mx = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+    matches.forEach(m => {
+        m.computeWorldMatrix(true);
+        const bb = m.getBoundingInfo().boundingBox;
+        mn = BABYLON.Vector3.Minimize(mn, bb.minimumWorld);
+        mx = BABYLON.Vector3.Maximize(mx, bb.maximumWorld);
+    });
+    const cx = (mn.x + mx.x) / 2;
+    const cy = mn.y;               // base sits on Y=0
+    const cz = (mn.z + mx.z) / 2;
+
+    // Create pivot at world origin
+    const furPivot = new BABYLON.TransformNode('furpiv_' + Date.now(), scene);
+    furPivot.metadata = { isFurPivot: true };
+
+    matches.forEach(m => {
+        const cl = m.clone(m.name + '_cl' + Date.now(), null);
+        if (!cl) return;
+        const wp = m.getAbsolutePosition();
+        cl.position.set(wp.x - cx, wp.y - cy, wp.z - cz);
+        if (m.rotationQuaternion) {
+            cl.rotationQuaternion = m.rotationQuaternion.clone();
+        } else {
+            cl.rotation.copyFrom(m.rotation);
+        }
+        cl.isVisible  = true;
+        cl.isPickable = true;
+        cl.parent     = furPivot;
+        cl.metadata   = { ...(cl.metadata || {}), furPivot: furPivot };
+        cl.receiveShadows = true;
+        try { shadows.addShadowCaster(cl, true); } catch(e) {}
+    });
+
+    // Tag any grandchild meshes too (for deep GLB hierarchies)
+    furPivot.getChildMeshes(false).forEach(cm => {
+        cm.metadata   = { ...(cm.metadata || {}), furPivot: furPivot };
+        cm.isPickable = true;
+    });
+
+    furPivot.position.set(0, floorY, 0);
+    // Y-correction: snap base exactly to floor level (bidirectional — fixes both
+    // floating furniture and furniture buried under the floor)
+    furPivot.computeWorldMatrix(true);
+    furPivot.getChildMeshes(false).forEach(cm => cm.computeWorldMatrix(true));
+    let _minYa = Infinity;
+    furPivot.getChildMeshes(false).forEach(cm => {
+        try { const b = cm.getBoundingInfo().boundingBox.minimumWorld.y; if (b < _minYa) _minYa = b; } catch(_) {}
+    });
+    if (_minYa !== Infinity && Math.abs(_minYa - floorY) > 0.05)
+        furPivot.position.y += (floorY - _minYa);
+    furnitureList.push(furPivot);
+    selectFurniture(furPivot);
+    showHint('Drag on the floor · ↻ Rotate · tap floor to deselect');
+    markDirty();
+}
+
+
+// ── Selection / drag ────────────────────────────────────────────────────────
+function selectFurniture(pv) {
+    deselectFurniture();
+    selectedFurPivot = pv;
+    if (!pv) return;
+
+    if (hlLayer) {
+        pv.getChildMeshes().forEach(m => {
+            try { hlLayer.addMesh(m, new BABYLON.Color3(0.15, 0.90, 0.25)); } catch(e) {}
+        });
+    }
+    // Selection ring under piece
+    selRing = BABYLON.MeshBuilder.CreateTorus('selRing',
+        {diameter:1.0, thickness:0.045, tessellation:32}, scene);
+    const rm = new BABYLON.PBRMaterial('selRingMat', scene);
+    rm.emissiveColor = new BABYLON.Color3(0.05, 0.85, 0.18);
+    rm.metallic = 0.4; rm.roughness = 0.4;
+    selRing.material = rm; selRing.parent = pv;
+    selRing.position.set(0, 0.01, 0); selRing.isPickable = false;
+
+    document.getElementById('btn-rotate-furn').style.opacity  = '1';
+    document.getElementById('btn-smaller-furn').style.opacity = '1';
+    document.getElementById('btn-bigger-furn').style.opacity  = '1';
+    document.getElementById('btn-delete-furn').style.opacity  = '1';
+}
+
+function deselectFurniture() {
+    if (hlLayer) hlLayer.removeAllMeshes();
+    if (selRing && !selRing.isDisposed()) { selRing.parent = null; selRing.dispose(); }
+    selRing = null; selectedFurPivot = null;
+    document.getElementById('btn-rotate-furn').style.opacity  = '0.5';
+    document.getElementById('btn-smaller-furn').style.opacity = '0.5';
+    document.getElementById('btn-bigger-furn').style.opacity  = '0.5';
+    document.getElementById('btn-delete-furn').style.opacity  = '0.5';
+}
+
+function rotateFurniture() {
+    if (selectedFurPivot) selectedFurPivot.rotation.y += Math.PI / 4;
+}
+
+function scaleFurniture(factor) {
+    if (!selectedFurPivot) return;
+    const cur  = selectedFurPivot.scaling.x;
+    const next = Math.min(5, Math.max(0.1, cur * factor));
+    selectedFurPivot.scaling.setAll(next);
+    // re-snap bottom to floor after scale
+    selectedFurPivot.computeWorldMatrix(true);
+    selectedFurPivot.getChildMeshes(false).forEach(cm => cm.computeWorldMatrix(true));
+    let _minYc = 0;
+    selectedFurPivot.getChildMeshes(false).forEach(cm => {
+        try { const b = cm.getBoundingInfo().boundingBox.minimumWorld.y; if (b < _minYc) _minYc = b; } catch(_) {}
+    });
+    if (Math.abs(_minYc) > 0.01) selectedFurPivot.position.y -= _minYc;
+}
+
+function deleteFurniture() {
+    const pv = selectedFurPivot;
+    if (!pv) return;
+    deselectFurniture();
+    const idx = furnitureList.indexOf(pv);
+    if (idx !== -1) furnitureList.splice(idx, 1);
+    pv.dispose();
+}
+
+// ── Drag system (Babylon.js pointer observables) ─────────────────────────────
+// Tap detection — track pointer-down position/time; only show zone popup if
+// the pointer didn't move more than 14px and was held for <450ms (not a drag).
+let _tapDownX = 0, _tapDownY = 0, _tapDownTime = 0;
+
+scene.onPointerObservable.add(pi => {
+    // ── Floor plan: tap-to-place zone ──
+    if (isFloorPlan && isPlacingZone &&
+        pi.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+        const hit = scene.pick(scene.pointerX, scene.pointerY,
+            m => m.name === 'zonePickFloor');
+        if (hit.hit && hit.pickedPoint)
+            placeZoneAt(hit.pickedPoint.x, hit.pickedPoint.z);
+        return;
+    }
+
+    // ── Floor plan: record pointer-down position for tap detection ──
+    if (isFloorPlan && !isPlacingZone &&
+        pi.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+        _tapDownX = scene.pointerX;
+        _tapDownY = scene.pointerY;
+        _tapDownTime = Date.now();
+    }
+
+    // ── Floor plan: confirm tap on POINTERUP — short press with no drag ──
+    if (isFloorPlan && !isPlacingZone &&
+        pi.type === BABYLON.PointerEventTypes.POINTERUP) {
+        const dx = scene.pointerX - _tapDownX;
+        const dy = scene.pointerY - _tapDownY;
+        if (Math.sqrt(dx*dx + dy*dy) < 14 && Date.now() - _tapDownTime < 450) {
+            // Pick at DOWN coordinates — more reliable finger-press position
+            const zh = scene.pick(_tapDownX, _tapDownY,
+                m => !!(m.metadata && m.metadata.isZoneTile));
+            if (zh.hit) { showZonePopup(zh.pickedMesh); return; }
+        }
+    }
+
+    if (!isInterior) return;
+
+    if (pi.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+        // 1. Furniture hit — select and start drag
+        const hit = scene.pick(scene.pointerX, scene.pointerY,
+            m => !!(m.metadata && m.metadata.furPivot));
+        if (hit.hit && hit.pickedMesh?.metadata?.furPivot) {
+            hideZonePopup();
+            selectFurniture(hit.pickedMesh.metadata.furPivot);
+            isDraggingFur = true;
+            camera.detachControl();
+            return;
+        }
+        // 2. Floor tap → close popup + deselect furniture
+        const floorHit = scene.pick(scene.pointerX, scene.pointerY,
+            m => m.name === 'interiorFloor');
+        if (floorHit.hit && !isDraggingFur) { hideZonePopup(); deselectFurniture(); }
+    }
+
+    if (pi.type === BABYLON.PointerEventTypes.POINTERMOVE &&
+        isDraggingFur && selectedFurPivot) {
+        const hit = scene.pick(scene.pointerX, scene.pointerY,
+            m => m.name === 'interiorFloor');
+        if (hit.hit && hit.pickedPoint) {
+            selectedFurPivot.position.x = hit.pickedPoint.x;
+            selectedFurPivot.position.z = hit.pickedPoint.z;
+        }
+    }
+
+    if (pi.type === BABYLON.PointerEventTypes.POINTERUP && isDraggingFur) {
+        isDraggingFur = false;
+        camera.attachControl(canvas, true);
+    }
+});
+
+// Render-on-demand: only draw when something changed (normal/static view)
+// or when a continuous mode is active (360 exploration, floor-plan, interior,
+// furniture drag). This is the single biggest win for large GLB files.
+engine.runRenderLoop(() => {
+    if (_dirty || isIn360 || isFloorPlan || isInterior || isDraggingFur || isPlacingZone) {
+        scene.render();
+        _dirty = false;
+    }
+});
+window.addEventListener('resize', () => { engine.resize(); markDirty(); });
+</script>
+</body>
+</html>

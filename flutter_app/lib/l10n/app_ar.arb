@@ -1,0 +1,14 @@
+{
+  "appName": "ARchitect AI",
+  "tagline": "الذكاء الاصطناعي للتصميم المعماري",
+  "readyToBuild": "هل أنت مستعد للبناء؟",
+  "scanLand": "صوّر أرضك وولّد مخططات AI فوراً.",
+  "scanNow": "امسح الأرض الآن",
+  "activeProjects": "المشاريع\nالنشطة",
+  "blueprints": "المخططات",
+  "recentProjects": "المشاريع الأخيرة",
+  "seeAll": "عرض الكل",
+  "myProfile": "ملفي الشخصي",
+  "settings": "الإعدادات",
+  "logout": "تسجيل الخروج"
+}

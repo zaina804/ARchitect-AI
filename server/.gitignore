@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# YOLO model weights (large binary — download separately)
+*.pt
+*.pth
+
+# Training data (large — not tracked in git)
+train/
+
+# 3D model files (large — download separately)
+models/*.glb
+models/*.gltf
+models/*.fbx
+models/*.obj
+
+# Generated outputs (test results)
+output/
+
+# Test images (not part of the codebase)
+*.jpeg
+*.jpg
+!README*.jpg
+!assets/*.jpg
+
+# Environment
+.env
