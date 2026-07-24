@@ -157,13 +157,13 @@ These files are too large for git and must be downloaded separately.
 
 Download `best (4).pt` and place it in `server/`:
 
-> **[Download Link — Coming Soon]**
+> **[[Download Link](https://drive.google.com/drive/folders/10xMhzuhg3Hss5NjFIOW5T_dIf29CVVGO?usp=drive_link)]**
 
 ### 3D Building Models (`.glb`)
 
 Download and place in `server/models/`. See [`server/models/MODELS.md`](server/models/MODELS.md) for details.
 
-> **[Download Link — Coming Soon]**
+> **[[Download Link](https://drive.google.com/drive/folders/1wTIzaqTqCmhsyCBGlRL4KuUmbQdMvegJ?usp=drive_link)]**
 
 ---
 
@@ -182,8 +182,9 @@ Download and place in `server/models/`. See [`server/models/MODELS.md`](server/m
 ---
 
 ## Screenshots
+How our model can detect land on a brand new image that was not used in training dataset 
+<img width="813" height="611" alt="Screenshot 2026-07-25 014603" src="https://github.com/user-attachments/assets/40afaaf3-a217-48f0-93d0-11f677c748a1" />
 
-_Coming soon — add screenshots here after setting up the app._
 
 ---
 
